@@ -5,16 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>料盒字典</title>
   <style>
-    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; color: #111; }
-    header { display: flex; justify-content: space-between; align-items: center; }
-    h1 { font-size: 22px; }
+    body { font-family: sans-serif; max-width: 800px; margin: 24px auto; padding: 0 16px; color: #111; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    h1 { font-size: 22px; margin: 0; }
+    form.search { margin: 20px 0; }
+    input[name="q"] { width: 100%; box-sizing: border-box; font-size: 20px; padding: 10px; }
+    .boxes { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+    .boxes a { border: 1px solid #333; padding: 6px 10px; text-decoration: none; color: #111; }
+    .loc { font-weight: 700; }
+    .empty { margin: 16px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { text-align: left; padding: 8px 4px; border-bottom: 1px solid #ddd; vertical-align: top; }
   </style>
 </head>
 <body>
   <header>
     <h1>料盒字典</h1>
-    <p>{{ display_name or username }} · <a href="/logout">退出</a></p>
+    <p>{{ display_name or username }} · <a href="/parts/new">登记</a> · <a href="/logout">退出</a></p>
   </header>
-  <p>登录成功。下一功能会在这里搜索元件位置。</p>
+  <form class="search" method="get" action="/">
+    <input type="search" name="q" value="{{ q }}" placeholder="10K、0603、3号盒" autofocus>
+  </form>
+  {% if q %}
+    {% if results %}
+    <table>
+      <thead>
+        <tr><th>简称</th><th>详细名称</th><th>位置</th><th>数量</th></tr>
+      </thead>
+      <tbody>
+        {% for part in results %}
+        <tr>
+          <td>{{ part.aliases }}</td>
+          <td>{{ part.name }}</td>
+          <td class="loc">{{ location_text(part.box, part.slot) }}</td>
+          <td>
+            {% if part.qty_kind == "exact" %}{{ part.qty_count }}{% else %}{{ qty_label[part.qty_kind] }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">没有「{{ q }}」。翻到后可以
+      <a href="/parts/new?alias={{ q | urlencode }}">登记：{{ q }}</a>
+    </p>
+    {% endif %}
+  {% else %}
+    <div class="boxes">
+      {% for n in boxes %}
+      <a href="/?q={{ n }}号盒">{{ n }}号盒</a>
+      {% endfor %}
+    </div>
+  {% endif %}
 </body>
 </html>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import bcrypt
 
-from app.models import User
+from app.models import Setting, User
 
 
 def hash_password(plain: str) -> str:
@@ -35,3 +35,20 @@ def seed_admin(session) -> None:
         )
     )
     session.commit()
+
+
+def seed_settings(session) -> None:
+    if session.get(Setting, "box_count") is None:
+        session.add(Setting(key="box_count", value="12"))
+        session.commit()
+
+
+def box_count(session) -> int:
+    row = session.get(Setting, "box_count")
+    if row is None:
+        return 12
+    try:
+        n = int(row.value)
+    except ValueError:
+        return 12
+    return min(99, max(1, n))
