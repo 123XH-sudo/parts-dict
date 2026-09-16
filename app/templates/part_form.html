@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>登记元件 · 料盒字典</title>
+  <title>{{ heading }} · 料盒字典</title>
   <style>
     body { font-family: sans-serif; max-width: 560px; margin: 24px auto; padding: 0 16px; color: #111; }
     label { display: block; margin: 12px 0 4px; }
@@ -15,9 +15,9 @@
 </head>
 <body>
   <p><a href="/">返回查找</a></p>
-  <h1>登记元件</h1>
+  <h1>{{ heading }}</h1>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  <form method="post" action="/parts">
+  <form method="post" action="{{ form_action }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="name">详细名称</label>
     <input id="name" name="name" value="{{ form.name }}" required>

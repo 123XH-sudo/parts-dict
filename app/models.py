@@ -51,3 +51,19 @@ class Part(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    username_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    part_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    summary: Mapped[str] = mapped_column(String(400), nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
