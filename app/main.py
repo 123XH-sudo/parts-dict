@@ -47,6 +47,40 @@ class LoginBody(BaseModel):
     password: str = ""
 
 
+class PartBody(BaseModel):
+    name: str = ""
+    aliases: str = ""
+    box: int | str = ""
+    slot: int | str = ""
+    qty_kind: str = "few"
+    qty_count: int | str | None = None
+    note: str = ""
+    polarized: bool = False
+
+
+def qty_text(part: Part) -> str:
+    if part.qty_kind == "exact":
+        return str(part.qty_count)
+    return QTY_LABEL.get(part.qty_kind, part.qty_kind)
+
+
+def part_result(part: Part) -> dict:
+    return {
+        "id": part.id,
+        "aliases": part.aliases,
+        "name": part.name,
+        "box": part.box,
+        "slot": part.slot,
+        "location": location_text(part.box, part.slot),
+        "qty_kind": part.qty_kind,
+        "qty_count": part.qty_count,
+        "qty_label": qty_text(part),
+        "polarized": part.polarized,
+        "note": part.note,
+        "active": part.active,
+    }
+
+
 def create_app() -> FastAPI:
     secret = os.environ.get("SECRET_KEY", "")
     if not secret:
@@ -206,6 +240,172 @@ def create_app() -> FastAPI:
             "box_count": n_boxes,
             "csrf_token": new_csrf(request),
         }
+
+    def occupied(session, box_n: int, slot_n: int, exclude_id: int | None = None):
+        query = session.query(Part).filter(
+            Part.active.is_(True), Part.box == box_n, Part.slot == slot_n
+        )
+        if exclude_id is not None:
+            query = query.filter(Part.id != exclude_id)
+        return query.order_by(Part.id).first()
+
+    @app.get("/api/parts")
+    def api_list_parts(request: Request, q: str = ""):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        query = q.strip()
+        with db() as session:
+            n_boxes = box_count(session)
+            if not query:
+                return {"results": [], "boxes": list(range(1, n_boxes + 1))}
+            active_parts = session.query(Part).filter(Part.active.is_(True)).all()
+            results = search_parts(active_parts, query)
+            return {"results": [part_result(part) for part in results], "boxes": []}
+
+    @app.post("/api/parts")
+    def api_create_part(request: Request, body: PartBody):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            n_boxes = box_count(session)
+            error, fields = parse_part_fields(
+                n_boxes,
+                body.name,
+                body.aliases,
+                body.box,
+                body.slot,
+                body.qty_kind,
+                body.qty_count,
+                body.note,
+                body.polarized,
+            )
+            if error:
+                return fail(400, error)
+            taken = occupied(session, fields["box"], fields["slot"])
+            if taken:
+                return fail(
+                    400,
+                    f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。",
+                )
+            part = Part(
+                name=fields["name"],
+                aliases=fields["aliases"],
+                aliases_norm=fields["aliases_norm"],
+                name_norm=fields["name_norm"],
+                box=fields["box"],
+                slot=fields["slot"],
+                qty_kind=fields["qty_kind"],
+                qty_count=fields["qty_count"],
+                note=fields["note"],
+                polarized=fields["polarized"],
+                active=True,
+                created_by=int(request.session["user_id"]),
+            )
+            session.add(part)
+            session.flush()
+            write_audit(
+                session,
+                user_id=int(request.session["user_id"]),
+                username=str(request.session.get("username", "")),
+                action="part.create",
+                part=part,
+                before=None,
+            )
+            session.commit()
+            return JSONResponse({"id": part.id}, status_code=201)
+
+    @app.get("/api/parts/{part_id}")
+    def api_get_part(request: Request, part_id: int):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            part = session.get(Part, part_id)
+            if part is None:
+                return fail(404, "没有这条料。")
+            return part_result(part)
+
+    @app.put("/api/parts/{part_id}")
+    def api_update_part(request: Request, part_id: int, body: PartBody):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            n_boxes = box_count(session)
+            part = session.get(Part, part_id)
+            if part is None:
+                return fail(404, "没有这条料。")
+            error, fields = parse_part_fields(
+                n_boxes,
+                body.name,
+                body.aliases,
+                body.box,
+                body.slot,
+                body.qty_kind,
+                body.qty_count,
+                body.note,
+                body.polarized,
+            )
+            if error:
+                return fail(400, error)
+            taken = occupied(session, fields["box"], fields["slot"], exclude_id=part.id)
+            if taken:
+                return fail(
+                    400,
+                    f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。",
+                )
+            before = snapshot(part)
+            part.name = fields["name"]
+            part.aliases = fields["aliases"]
+            part.aliases_norm = fields["aliases_norm"]
+            part.name_norm = fields["name_norm"]
+            part.box = fields["box"]
+            part.slot = fields["slot"]
+            part.qty_kind = fields["qty_kind"]
+            part.qty_count = fields["qty_count"]
+            part.note = fields["note"]
+            part.polarized = fields["polarized"]
+            write_audit(
+                session,
+                user_id=int(request.session["user_id"]),
+                username=str(request.session.get("username", "")),
+                action="part.update",
+                part=part,
+                before=before,
+            )
+            session.commit()
+            return {"id": part.id}
+
+    @app.post("/api/parts/{part_id}/deactivate")
+    def api_deactivate_part(request: Request, part_id: int):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            part = session.get(Part, part_id)
+            if part is None:
+                return fail(404, "没有这条料。")
+            before = snapshot(part)
+            part.active = False
+            user_id, who = actor(request)
+            write_audit(
+                session,
+                user_id=user_id,
+                username=who,
+                action="part.deactivate",
+                part=part,
+                before=before,
+            )
+            session.commit()
+        return Response(status_code=204)
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, q: str = ""):
@@ -378,13 +578,13 @@ def create_app() -> FastAPI:
         }
 
     def parse_part_fields(n_boxes: int, name, aliases, box, slot, qty_kind, qty_count, note, polarized):
-        alias_list = parse_aliases(aliases)
-        if not name.strip() or not alias_list:
+        alias_list = parse_aliases(aliases or "")
+        if not str(name).strip() or not alias_list:
             return "详细名称和简称都要填。", None
         try:
             box_n = int(box)
             slot_n = int(slot)
-        except ValueError:
+        except (TypeError, ValueError):
             return "盒号和格号必须是数字。", None
         if box_n < 1 or box_n > n_boxes or slot_n < 1:
             return f"盒号必须在 1～{n_boxes}，格号至少为 1。", None
@@ -394,21 +594,22 @@ def create_app() -> FastAPI:
         if qty_kind == "exact":
             try:
                 count = int(qty_count)
-            except ValueError:
+            except (TypeError, ValueError):
                 return "具体数量必须是整数。", None
             if count < 0:
                 return "具体数量不能小于 0。", None
+        polar = polarized if isinstance(polarized, bool) else str(polarized).lower() in {"on", "true", "1"}
         return None, {
-            "name": name.strip(),
+            "name": str(name).strip(),
             "aliases": ",".join(alias_list),
             "aliases_norm": aliases_norm(alias_list),
-            "name_norm": normalize(name),
+            "name_norm": normalize(str(name)),
             "box": box_n,
             "slot": slot_n,
             "qty_kind": qty_kind,
             "qty_count": count,
-            "note": note.strip(),
-            "polarized": polarized == "on",
+            "note": str(note or "").strip(),
+            "polarized": polar,
         }
 
     @app.get("/parts/{part_id}/edit", response_class=HTMLResponse)
@@ -785,11 +986,6 @@ def create_app() -> FastAPI:
             "jobs.html",
             user_ctx(request, csrf_token=new_csrf(request), error=error, jobs=jobs),
         )
-
-    def qty_text(part: Part) -> str:
-        if part.qty_kind == "exact":
-            return str(part.qty_count)
-        return QTY_LABEL.get(part.qty_kind, part.qty_kind)
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs_page(request: Request):
