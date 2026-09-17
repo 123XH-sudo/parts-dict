@@ -6,11 +6,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.backup import dump_backup
+from app.jsonutil import csrf_from_request, fail
 from app.bom import BomError, ParsedLine, match_part, parse_bom
 from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
@@ -41,6 +42,11 @@ templates.env.globals["qty_label"] = QTY_LABEL
 templates.env.globals["location_text"] = location_text
 
 
+class LoginBody(BaseModel):
+    username: str = ""
+    password: str = ""
+
+
 def create_app() -> FastAPI:
     secret = os.environ.get("SECRET_KEY", "")
     if not secret:
@@ -67,6 +73,22 @@ def create_app() -> FastAPI:
     def valid_csrf(request: Request, token: str) -> bool:
         expected = request.session.get("csrf_token", "")
         return bool(expected) and token == expected
+
+    def check_csrf(request: Request, form_token: str = "") -> bool:
+        return valid_csrf(request, csrf_from_request(request) or form_token)
+
+    def api_login_required(request: Request):
+        if request.session.get("user_id"):
+            return None
+        return fail(401, "未登录")
+
+    def api_admin_required(request: Request):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if request.session.get("role") != "admin":
+            return fail(403, "只有管理员能管账号")
+        return None
 
     def login_required(request: Request):
         if request.session.get("user_id"):
@@ -140,6 +162,50 @@ def create_app() -> FastAPI:
     def logout(request: Request):
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
+
+    @app.get("/api/csrf")
+    def api_csrf(request: Request):
+        return {"csrf_token": new_csrf(request)}
+
+    @app.post("/api/login")
+    def api_login(request: Request, body: LoginBody):
+        if not check_csrf(request):
+            return fail(400, "用户名或密码不对")
+        with db() as session:
+            user = (
+                session.query(User)
+                .filter(User.username == body.username.strip(), User.active.is_(True))
+                .one_or_none()
+            )
+            if user is None or not verify_password(body.password, user.password_hash):
+                return fail(400, "用户名或密码不对")
+            request.session["user_id"] = user.id
+            request.session["username"] = user.username
+            request.session["display_name"] = user.display_name
+            request.session["role"] = user.role
+        return Response(status_code=204)
+
+    @app.post("/api/logout")
+    def api_logout(request: Request):
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        request.session.clear()
+        return Response(status_code=204)
+
+    @app.get("/api/me")
+    def api_me(request: Request):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            n_boxes = box_count(session)
+        return {
+            "username": request.session.get("username", ""),
+            "display_name": request.session.get("display_name", ""),
+            "role": request.session.get("role", ""),
+            "box_count": n_boxes,
+            "csrf_token": new_csrf(request),
+        }
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, q: str = ""):
