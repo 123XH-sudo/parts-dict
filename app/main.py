@@ -5,11 +5,12 @@ import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.bom import BomError, ParsedLine, match_part, parse_bom
 from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
     box_count,
@@ -21,7 +22,7 @@ from app.auth import (
     verify_password,
 )
 from app.db import Base, make_engine, make_session_factory
-from app.models import AuditLog, Part, Setting, User
+from app.models import AuditLog, Job, JobLine, Part, Setting, User
 from app.search import (
     QTY_LABEL,
     aliases_norm,
@@ -260,6 +261,16 @@ def create_app() -> FastAPI:
                     return rerender("具体数量必须是整数。")
                 if count < 0:
                     return rerender("具体数量不能小于 0。")
+            taken = (
+                session.query(Part)
+                .filter(Part.active.is_(True), Part.box == box_n, Part.slot == slot_n)
+                .order_by(Part.id)
+                .first()
+            )
+            if taken:
+                return rerender(
+                    f"{location_text(box_n, slot_n)}已经有 {taken.aliases}，一格只能放一种料。"
+                )
             part = Part(
                 name=name.strip(),
                 aliases=",".join(alias_list),
@@ -416,6 +427,21 @@ def create_app() -> FastAPI:
             )
             if error:
                 return rerender(error)
+            taken = (
+                session.query(Part)
+                .filter(
+                    Part.active.is_(True),
+                    Part.box == fields["box"],
+                    Part.slot == fields["slot"],
+                    Part.id != part.id,
+                )
+                .order_by(Part.id)
+                .first()
+            )
+            if taken:
+                return rerender(
+                    f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。"
+                )
             before = snapshot(part)
             part.name = fields["name"]
             part.aliases = fields["aliases"]
@@ -672,6 +698,171 @@ def create_app() -> FastAPI:
             )
             session.commit()
         return RedirectResponse("/users", status_code=303)
+
+    def render_jobs(request: Request, session, error: str | None = None):
+        jobs = session.query(Job).order_by(Job.updated_at.desc(), Job.id.desc()).all()
+        return templates.TemplateResponse(
+            request,
+            "jobs.html",
+            user_ctx(request, csrf_token=new_csrf(request), error=error, jobs=jobs),
+        )
+
+    def qty_text(part: Part) -> str:
+        if part.qty_kind == "exact":
+            return str(part.qty_count)
+        return QTY_LABEL.get(part.qty_kind, part.qty_kind)
+
+    @app.get("/jobs", response_class=HTMLResponse)
+    def jobs_page(request: Request):
+        gate = login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            return render_jobs(request, session)
+
+    @app.post("/jobs", response_class=HTMLResponse)
+    def upload_job(
+        request: Request,
+        title: str = Form(""),
+        csrf_token: str = Form(""),
+        file: UploadFile = File(None),
+    ):
+        gate = login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            if not valid_csrf(request, csrf_token):
+                return render_jobs(request, session, "提交已过期，请再保存一次。")
+            if file is None or not file.filename:
+                return render_jobs(request, session, "请用嘉立创导出的 BOM")
+            content = file.file.read()
+            try:
+                parsed = parse_bom(content, file.filename)
+            except BomError as exc:
+                return render_jobs(request, session, str(exc))
+            board_title = title.strip() or Path(file.filename).stem[:80]
+            if not board_title:
+                return render_jobs(request, session, "请填一个短名称。")
+            parts = session.query(Part).filter(Part.active.is_(True)).all()
+            job = session.query(Job).filter(Job.title == board_title).one_or_none()
+            if job is None:
+                job = Job(
+                    title=board_title,
+                    source_filename=file.filename,
+                    uploaded_by=int(request.session["user_id"]),
+                )
+                session.add(job)
+                session.flush()
+            else:
+                session.query(JobLine).filter(JobLine.job_id == job.id).delete(
+                    synchronize_session=False
+                )
+                job.source_filename = file.filename
+            for line in parsed:
+                part = match_part(line, parts)
+                session.add(
+                    JobLine(
+                        job_id=job.id,
+                        designators=line.designators,
+                        name=line.name,
+                        footprint=line.footprint,
+                        supplier=line.supplier,
+                        quantity=line.quantity,
+                        part_id=part.id if part else None,
+                        skip_bin=line.skip_bin,
+                        polarized_hint=line.polarized_hint,
+                        warning=line.warning,
+                    )
+                )
+            user_id, who = actor(request)
+            write_event(
+                session,
+                user_id=user_id,
+                username=who,
+                action="job.upload",
+                summary=f"上传 {board_title}（{len(parsed)} 行）",
+                after={"title": board_title, "filename": file.filename},
+            )
+            session.commit()
+            job_id = job.id
+        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+    @app.get("/jobs/{job_id}", response_class=HTMLResponse)
+    def job_page(request: Request, job_id: int):
+        gate = login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                return HTMLResponse("没有这块板。", status_code=404)
+            catalog = session.query(Part).filter(Part.active.is_(True)).all()
+            lines = (
+                session.query(JobLine)
+                .filter(JobLine.job_id == job.id)
+                .order_by(JobLine.id)
+                .all()
+            )
+            changed = False
+            for line in lines:
+                parsed = ParsedLine(
+                    designators=line.designators,
+                    name=line.name,
+                    footprint=line.footprint,
+                    supplier=line.supplier,
+                    quantity=line.quantity,
+                    skip_bin=line.skip_bin,
+                    polarized_hint=line.polarized_hint,
+                    warning=line.warning,
+                )
+                part = match_part(parsed, catalog)
+                new_id = part.id if part else None
+                if line.part_id != new_id:
+                    line.part_id = new_id
+                    changed = True
+            if changed:
+                session.commit()
+            part_ids = [line.part_id for line in lines if line.part_id]
+            parts = {}
+            if part_ids:
+                parts = {
+                    part.id: part
+                    for part in session.query(Part).filter(Part.id.in_(part_ids)).all()
+                }
+
+            def pack(line: JobLine):
+                part = parts.get(line.part_id) if line.part_id else None
+                return {
+                    "line": line,
+                    "part": part,
+                    "location": location_text(part.box, part.slot) if part else "",
+                    "qty": qty_text(part) if part else "",
+                }
+
+            polar = [pack(line) for line in lines if line.polarized_hint and not line.skip_bin]
+            grouped: dict[int, list] = {}
+            for line in lines:
+                if line.skip_bin or not line.part_id:
+                    continue
+                part = parts[line.part_id]
+                grouped.setdefault(part.box, []).append(pack(line))
+            for rows in grouped.values():
+                rows.sort(key=lambda row: (row["part"].slot, row["line"].id))
+            box_groups = [(box, grouped[box]) for box in sorted(grouped)]
+            unreg = [line for line in lines if not line.part_id and not line.skip_bin]
+            skip = [line for line in lines if line.skip_bin]
+            return templates.TemplateResponse(
+                request,
+                "job.html",
+                user_ctx(
+                    request,
+                    job=job,
+                    polar=polar,
+                    box_groups=box_groups,
+                    unreg=unreg,
+                    skip=skip,
+                ),
+            )
 
     return app
 

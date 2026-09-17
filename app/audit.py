@@ -11,6 +11,7 @@ ACTION_LABEL = {
     "part.create": "新建",
     "part.update": "修改",
     "part.deactivate": "停用",
+    "job.upload": "上传BOM",
     "user.create": "开账号",
     "user.disable": "停用账号",
     "user.reset_password": "重置密码",

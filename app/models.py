@@ -67,3 +67,34 @@ class AuditLog(Base):
     summary: Mapped[str] = mapped_column(String(400), nullable=False)
     before_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
     after_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    source_filename: Mapped[str] = mapped_column(String(260), nullable=False)
+    uploaded_by: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class JobLine(Base):
+    __tablename__ = "job_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    designators: Mapped[str] = mapped_column(String(400), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    footprint: Mapped[str] = mapped_column(String(200), nullable=False)
+    supplier: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    part_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skip_bin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    polarized_hint: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    warning: Mapped[str] = mapped_column(String(200), default="", nullable=False)

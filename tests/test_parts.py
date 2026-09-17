@@ -90,6 +90,89 @@ def test_search_by_box_label(client):
     assert "3号盒第5格" in boxed.text
 
 
+def test_two_parts_cannot_share_the_same_slot(client):
+    login(client)
+    form = client.get("/parts/new")
+    first = client.post(
+        "/parts",
+        data={
+            "name": "0603 10kΩ 厚膜电阻",
+            "aliases": "10K",
+            "box": "3",
+            "slot": "5",
+            "qty_kind": "few",
+            "csrf_token": csrf_token(form.text),
+        },
+        follow_redirects=False,
+    )
+    assert first.status_code in (302, 303)
+    form = client.get("/parts/new")
+    clash = client.post(
+        "/parts",
+        data={
+            "name": "0603 100nF",
+            "aliases": "100nF",
+            "box": "3",
+            "slot": "5",
+            "qty_kind": "few",
+            "csrf_token": csrf_token(form.text),
+        },
+        follow_redirects=False,
+    )
+    assert clash.status_code == 200
+    assert "3号盒第5格" in clash.text
+    assert "10K" in clash.text
+    found = client.get("/?q=100nF")
+    assert "3号盒第5格" not in found.text
+
+
+def test_edit_cannot_move_onto_occupied_slot(client):
+    login(client)
+    form = client.get("/parts/new")
+    client.post(
+        "/parts",
+        data={
+            "name": "0603 10kΩ 厚膜电阻",
+            "aliases": "10K",
+            "box": "3",
+            "slot": "5",
+            "qty_kind": "few",
+            "csrf_token": csrf_token(form.text),
+        },
+        follow_redirects=False,
+    )
+    form = client.get("/parts/new")
+    client.post(
+        "/parts",
+        data={
+            "name": "0603 100nF",
+            "aliases": "100nF",
+            "box": "4",
+            "slot": "2",
+            "qty_kind": "few",
+            "csrf_token": csrf_token(form.text),
+        },
+        follow_redirects=False,
+    )
+    form = client.get("/parts/2/edit")
+    clash = client.post(
+        "/parts/2",
+        data={
+            "name": "0603 100nF",
+            "aliases": "100nF",
+            "box": "3",
+            "slot": "5",
+            "qty_kind": "few",
+            "csrf_token": csrf_token(form.text),
+        },
+        follow_redirects=False,
+    )
+    assert clash.status_code == 200
+    assert "10K" in clash.text
+    still = client.get("/?q=100nF")
+    assert "4号盒第2格" in still.text
+
+
 def test_missing_search_offers_register(client):
     login(client)
     page = client.get("/?q=1N4148WS")

@@ -21,7 +21,7 @@
 <body>
   <header>
     <h1>料盒字典</h1>
-    <p>{{ display_name or username }} · <a href="/parts/new">登记</a> · <a href="/history">修改记录</a>{% if is_admin %} · <a href="/users">账号</a>{% endif %} · <a href="/logout">退出</a></p>
+    <p>{{ display_name or username }} · <a href="/parts/new">登记</a> · <a href="/jobs">本板贴片</a> · <a href="/history">修改记录</a>{% if is_admin %} · <a href="/users">账号</a>{% endif %} · <a href="/logout">退出</a></p>
   </header>
   <form class="search" method="get" action="/">
     <input type="search" name="q" value="{{ q }}" placeholder="10K、0603、3号盒" autofocus>

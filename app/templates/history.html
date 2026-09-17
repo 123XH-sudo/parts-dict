@@ -16,7 +16,7 @@
 <body>
   <header>
     <h1>修改记录</h1>
-    <p>{{ display_name or username }} · <a href="/">查找</a>{% if is_admin %} · <a href="/users">账号</a>{% endif %} · <a href="/logout">退出</a></p>
+    <p>{{ display_name or username }} · <a href="/">查找</a> · <a href="/jobs">本板贴片</a>{% if is_admin %} · <a href="/users">账号</a>{% endif %} · <a href="/logout">退出</a></p>
   </header>
   {% if rows %}
   <table>
