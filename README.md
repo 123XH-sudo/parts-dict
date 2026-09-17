@@ -1,8 +1,6 @@
 # 料盒字典
 
-贴片时查找元件在几号盒、第几格。全组共用，需登录。
-
-当前可测：**登录 / 退出**。搜索、登记、BOM 贴片清单尚未做。
+贴片时对着嘉立创辅助焊接图，按规格查找元件在几号盒、第几格。全组共用，需登录。
 
 ## 本机运行
 
@@ -18,11 +16,50 @@ mkdir -p data
 
 浏览器打开 http://127.0.0.1:8787
 
-- 默认用户名见 `.env` 的 `ADMIN_USERNAME`（示例是 `admin`）
-- 密码是 `ADMIN_PASSWORD`
-- 错误密码应提示「用户名或密码不对」
-- 登录成功后看到首页和你的用户名，点「退出」回到登录页
-- 未登录访问首页会跳到登录
+环境变量（写在 `.env`，不要提交到 Git）：
+
+| 变量 | 作用 |
+|---|---|
+| `SECRET_KEY` | Session 签名密钥，必须改成足够长的随机串 |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 仅库里还没有用户时创建第一个管理员 |
+| `TZ` | 页面时间，默认 `Asia/Shanghai` |
+| `DATABASE_URL` | 默认 `sqlite:///./data/parts.db` |
+
+数据文件在 `data/parts.db`。备份这个文件，或用管理员账号页的「导出备份 JSON」（不含密码哈希）。
+
+## Docker
+
+```bash
+cp .env.example .env
+# 改 SECRET_KEY 和 ADMIN_PASSWORD
+mkdir -p data
+docker compose up -d --build
+```
+
+Compose 把本机 `./data` 挂到容器 `/app/data`，升级镜像时库存不会丢。定期复制 `data/parts.db`。
+
+## 反代 / HTTPS
+
+容器或 uvicorn 只监听内网 `8787`。用已有 Nginx 证书对外，例如：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name parts.example.com;
+    # ssl_certificate / ssl_certificate_key 用你现有的
+
+    client_max_body_size 2m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+工位电脑和手机用同一域名打开即可。
 
 ## 测试
 

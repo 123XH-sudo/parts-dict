@@ -26,6 +26,8 @@
   </header>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
+  <p><a href="/backup.json">导出备份 JSON</a>（元件、用户不含密码、修改记录、本板清单）</p>
+
   <h2>盒数</h2>
   <form method="post" action="/settings/box_count">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

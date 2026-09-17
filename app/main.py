@@ -6,10 +6,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.backup import dump_backup
 from app.bom import BomError, ParsedLine, match_part, parse_bom
 from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
@@ -698,6 +699,18 @@ def create_app() -> FastAPI:
             )
             session.commit()
         return RedirectResponse("/users", status_code=303)
+
+    @app.get("/backup.json")
+    def backup_json(request: Request):
+        gate = admin_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            payload = dump_backup(session)
+        return JSONResponse(
+            content=payload,
+            headers={"Content-Disposition": 'attachment; filename="parts-dict-backup.json"'},
+        )
 
     def render_jobs(request: Request, session, error: str | None = None):
         jobs = session.query(Job).order_by(Job.updated_at.desc(), Job.id.desc()).all()
