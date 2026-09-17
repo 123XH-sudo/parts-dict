@@ -42,5 +42,11 @@
     <input id="note" name="note" value="{{ form.note }}">
     <button type="submit">保存</button>
   </form>
+  {% if show_deactivate %}
+  <form method="post" action="/parts/{{ part_id }}/deactivate">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">停用这条料</button>
+  </form>
+  {% endif %}
 </body>
 </html>

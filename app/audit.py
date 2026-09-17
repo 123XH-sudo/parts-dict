@@ -11,6 +11,10 @@ ACTION_LABEL = {
     "part.create": "新建",
     "part.update": "修改",
     "part.deactivate": "停用",
+    "user.create": "开账号",
+    "user.disable": "停用账号",
+    "user.reset_password": "重置密码",
+    "settings.update": "改设置",
 }
 
 
@@ -65,18 +69,41 @@ def location_summary(before: dict | None, after: dict) -> str:
     return "；".join(changes)
 
 
-def write_audit(session, *, user_id: int, username: str, action: str, part: Part, before: dict | None):
-    after = snapshot(part)
+def write_event(
+    session,
+    *,
+    user_id: int,
+    username: str,
+    action: str,
+    summary: str,
+    part_id: int | None = None,
+    before: dict | None = None,
+    after: dict | None = None,
+):
     session.add(
         AuditLog(
             user_id=user_id,
             username_snapshot=username,
-            part_id=part.id,
+            part_id=part_id,
             action=action,
-            summary=location_summary(before, after),
+            summary=summary,
             before_json=dumps(before),
             after_json=dumps(after),
         )
+    )
+
+
+def write_audit(session, *, user_id: int, username: str, action: str, part: Part, before: dict | None):
+    after = snapshot(part)
+    write_event(
+        session,
+        user_id=user_id,
+        username=username,
+        action=action,
+        summary=location_summary(before, after),
+        part_id=part.id,
+        before=before,
+        after=after,
     )
 
 
@@ -92,6 +119,6 @@ def history_row(log: AuditLog) -> dict:
         "at": format_local(log.at),
         "who": log.username_snapshot,
         "action": ACTION_LABEL.get(log.action, log.action),
-        "target": after.get("aliases") or after.get("name") or "",
+        "target": after.get("aliases") or after.get("name") or after.get("username") or "",
         "summary": log.summary,
     }
