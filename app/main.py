@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.backup import dump_backup
 from app.jsonutil import csrf_from_request, fail
 from app.bom import BomError, ParsedLine, match_part, parse_bom
 from app.audit import history_row, snapshot, write_audit, write_event
@@ -56,6 +57,20 @@ class PartBody(BaseModel):
     qty_count: int | str | None = None
     note: str = ""
     polarized: bool = False
+
+
+class UserBody(BaseModel):
+    username: str = ""
+    display_name: str = ""
+    password: str = ""
+
+
+class PasswordBody(BaseModel):
+    password: str = ""
+
+
+class BoxCountBody(BaseModel):
+    box_count: int | str = ""
 
 
 def qty_text(part: Part) -> str:
@@ -406,6 +421,186 @@ def create_app() -> FastAPI:
             )
             session.commit()
         return Response(status_code=204)
+
+    @app.get("/api/history")
+    def api_history(request: Request, part_id: str = ""):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            query = session.query(AuditLog).order_by(AuditLog.at.desc(), AuditLog.id.desc())
+            if part_id.strip().isdigit():
+                query = query.filter(AuditLog.part_id == int(part_id))
+            logs = query.limit(200).all()
+            return {"rows": [history_row(log) for log in logs]}
+
+    @app.get("/api/users")
+    def api_users(request: Request):
+        gate = api_admin_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            users = session.query(User).order_by(User.id).all()
+            return {
+                "users": [
+                    {
+                        "id": user.id,
+                        "username": user.username,
+                        "display_name": user.display_name,
+                        "role": user.role,
+                        "active": user.active,
+                    }
+                    for user in users
+                ],
+                "box_count": box_count(session),
+                "current_user_id": int(request.session["user_id"]),
+            }
+
+    @app.post("/api/users")
+    def api_create_user(request: Request, body: UserBody):
+        gate = api_admin_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            name = body.username.strip()
+            shown = body.display_name.strip() or name
+            if not valid_username(name):
+                return fail(400, "用户名要 3～32 个字母、数字或下划线。")
+            if len(body.password) < 8:
+                return fail(400, "初始密码至少 8 位。")
+            if session.query(User).filter(User.username == name).one_or_none():
+                return fail(400, "这个用户名已经有了。")
+            user = User(
+                username=name,
+                password_hash=hash_password(body.password),
+                display_name=shown,
+                role="member",
+                active=True,
+            )
+            session.add(user)
+            session.flush()
+            user_id, who = actor(request)
+            write_event(
+                session,
+                user_id=user_id,
+                username=who,
+                action="user.create",
+                summary=f"开了账号 {name}",
+                after={"username": name, "role": "member"},
+            )
+            session.commit()
+            return JSONResponse({"id": user.id}, status_code=201)
+
+    @app.post("/api/users/{user_id}/disable")
+    def api_disable_user(request: Request, user_id: int):
+        gate = api_admin_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            user = session.get(User, user_id)
+            if user is None:
+                return fail(404, "没有这个账号。")
+            if user.id == int(request.session["user_id"]):
+                return fail(400, "不能停用自己正在用的账号。")
+            user.active = False
+            admin_id, who = actor(request)
+            write_event(
+                session,
+                user_id=admin_id,
+                username=who,
+                action="user.disable",
+                summary=f"停用账号 {user.username}",
+                after={"username": user.username},
+            )
+            session.commit()
+        return Response(status_code=204)
+
+    @app.post("/api/users/{user_id}/reset-password")
+    def api_reset_password(request: Request, user_id: int, body: PasswordBody):
+        gate = api_admin_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            user = session.get(User, user_id)
+            if user is None:
+                return fail(404, "没有这个账号。")
+            if len(body.password) < 8:
+                return fail(400, "新密码至少 8 位。")
+            user.password_hash = hash_password(body.password)
+            admin_id, who = actor(request)
+            write_event(
+                session,
+                user_id=admin_id,
+                username=who,
+                action="user.reset_password",
+                summary=f"重置了 {user.username} 的密码",
+                after={"username": user.username},
+            )
+            session.commit()
+        return Response(status_code=204)
+
+    @app.put("/api/settings/box_count")
+    def api_update_box_count(request: Request, body: BoxCountBody):
+        gate = api_admin_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            n = parse_box_count(str(body.box_count).strip())
+            if n is None:
+                return fail(400, "盒数必须是 1～99 的整数。")
+            old = box_count(session)
+            if n < old:
+                blockers = (
+                    session.query(Part)
+                    .filter(Part.active.is_(True), Part.box > n)
+                    .order_by(Part.box, Part.slot)
+                    .all()
+                )
+                if blockers:
+                    used = "、".join(sorted({f"{p.box}号盒" for p in blockers}))
+                    names = "、".join(p.aliases for p in blockers[:8])
+                    return fail(
+                        400,
+                        f"还有启用中的料在 {used}（{names}），必须先改到合法盒号或停用再减盒。",
+                    )
+            row = session.get(Setting, "box_count")
+            if row is None:
+                row = Setting(key="box_count", value=str(n))
+                session.add(row)
+            else:
+                row.value = str(n)
+            admin_id, who = actor(request)
+            write_event(
+                session,
+                user_id=admin_id,
+                username=who,
+                action="settings.update",
+                summary=f"盒数 {old} → {n}",
+                before={"box_count": old},
+                after={"box_count": n},
+            )
+            session.commit()
+        return Response(status_code=204)
+
+    @app.get("/api/backup.json")
+    def api_backup_json(request: Request):
+        gate = api_admin_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            payload = dump_backup(session)
+        return JSONResponse(
+            content=payload,
+            headers={"Content-Disposition": 'attachment; filename="parts-dict-backup.json"'},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request, q: str = ""):
