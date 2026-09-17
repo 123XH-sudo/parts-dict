@@ -11,11 +11,11 @@ export async function request(method, url, { json, form } = {}) {
   if (json !== undefined) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(json);
-  } else {
+  } else if (form !== undefined) {
     body = form;
   }
   const res = await fetch(url, { method, headers, body, credentials: "include" });
-  if (res.status === 401 && url !== "/api/login") {
+  if (res.status === 401 && url !== "/api/login" && url !== "/api/me") {
     if (window.location.pathname !== "/login") {
       window.location.assign("/login");
     }
@@ -26,7 +26,8 @@ export async function request(method, url, { json, form } = {}) {
 
 export async function loadCsrf() {
   const res = await request("GET", "/api/csrf");
-  csrf = (await res.json()).csrf_token;
+  const data = await res.json();
+  csrf = data.csrf_token;
   return csrf;
 }
 
