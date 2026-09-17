@@ -1,0 +1,54 @@
+:root {
+  color: #111;
+  background: #f4f4f5;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.45;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f4f5;
+}
+
+a {
+  color: #111;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.page.narrow {
+  max-width: 560px;
+}
+
+.loc {
+  font-weight: 700;
+}
+
+.polar {
+  background: #fde8e8;
+  border: 1px solid #c0392b;
+  padding: 8px 12px;
+}
+
+.polar h2 {
+  margin-top: 0;
+  color: #8b1a1a;
+}
+
+.error {
+  color: #a40000;
+}

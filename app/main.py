@@ -6,7 +6,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -38,6 +39,7 @@ from app.search import (
 load_dotenv()
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+SPA_DIR = Path(__file__).parent / "static" / "spa"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["qty_label"] = QTY_LABEL
 templates.env.globals["location_text"] = location_text
@@ -1438,6 +1440,19 @@ def create_app() -> FastAPI:
                     skip=skip,
                 ),
             )
+
+    assets = SPA_DIR / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets)), name="spa-assets")
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        index = SPA_DIR / "index.html"
+        if index.exists():
+            return FileResponse(index)
+        return JSONResponse({"detail": "前端未构建"}, status_code=503)
 
     return app
 
