@@ -2,12 +2,17 @@
 
 贴片时对着嘉立创辅助焊接图，按规格查找元件在几号盒、第几格。全组共用，需登录。
 
+界面是 Vue 单页，由同一个 FastAPI 进程提供 `/api` 和页面。工位不用装 Node。
+
 ## 本机运行
+
+需要 Python 3.12 和 Node 20+（只用来构建前端）。
 
 ```bash
 cd parts-dict
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+cd web && npm install && SPA_OUT=../app/static/spa npm run build && cd ..
 cp .env.example .env
 # 改 .env 里的 SECRET_KEY 和 ADMIN_PASSWORD
 mkdir -p data
@@ -15,6 +20,8 @@ mkdir -p data
 ```
 
 浏览器打开 http://127.0.0.1:8787
+
+开发前端时可另开终端：`cd web && npm run dev`（Vite 把 `/api` 代理到 8787）。改完后仍用上面的 `SPA_OUT=... npm run build`，再用 8787 打开完整界面。
 
 环境变量（写在 `.env`，不要提交到 Git）：
 

@@ -53,10 +53,11 @@ async function upload() {
     return;
   }
   try {
-    await loadCsrf();
+    const token = await loadCsrf();
     const form = new FormData();
     form.append("title", title.value);
     form.append("file", file.value);
+    form.append("csrf_token", token);
     const res = await request("POST", "/api/jobs", { form });
     const data = await readJson(res);
     if (!res.ok) {

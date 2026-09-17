@@ -4,5 +4,5 @@ import vue from "@vitejs/plugin-vue";
 export default defineConfig({
   plugins: [vue()],
   server: { proxy: { "/api": "http://127.0.0.1:8787" } },
-  build: { outDir: "../app/static/spa", emptyOutDir: true },
+  build: { outDir: process.env.SPA_OUT || "dist", emptyOutDir: true },
 });
