@@ -1174,6 +1174,178 @@ def create_app() -> FastAPI:
             headers={"Content-Disposition": 'attachment; filename="parts-dict-backup.json"'},
         )
 
+    def persist_job(session, request: Request, title: str, filename: str, content: bytes):
+        parsed = parse_bom(content, filename)
+        board_title = title.strip() or Path(filename).stem[:80]
+        if not board_title:
+            return None, "请填一个短名称。"
+        parts = session.query(Part).filter(Part.active.is_(True)).all()
+        job = session.query(Job).filter(Job.title == board_title).one_or_none()
+        if job is None:
+            job = Job(
+                title=board_title,
+                source_filename=filename,
+                uploaded_by=int(request.session["user_id"]),
+            )
+            session.add(job)
+            session.flush()
+        else:
+            session.query(JobLine).filter(JobLine.job_id == job.id).delete(
+                synchronize_session=False
+            )
+            job.source_filename = filename
+        for line in parsed:
+            part = match_part(line, parts)
+            session.add(
+                JobLine(
+                    job_id=job.id,
+                    designators=line.designators,
+                    name=line.name,
+                    footprint=line.footprint,
+                    supplier=line.supplier,
+                    quantity=line.quantity,
+                    part_id=part.id if part else None,
+                    skip_bin=line.skip_bin,
+                    polarized_hint=line.polarized_hint,
+                    warning=line.warning,
+                )
+            )
+        user_id, who = actor(request)
+        write_event(
+            session,
+            user_id=user_id,
+            username=who,
+            action="job.upload",
+            summary=f"上传 {board_title}（{len(parsed)} 行）",
+            after={"title": board_title, "filename": filename},
+        )
+        session.commit()
+        return job, None
+
+    def rematch_job_lines(session, job: Job) -> list[JobLine]:
+        catalog = session.query(Part).filter(Part.active.is_(True)).all()
+        lines = (
+            session.query(JobLine)
+            .filter(JobLine.job_id == job.id)
+            .order_by(JobLine.id)
+            .all()
+        )
+        changed = False
+        for line in lines:
+            parsed = ParsedLine(
+                designators=line.designators,
+                name=line.name,
+                footprint=line.footprint,
+                supplier=line.supplier,
+                quantity=line.quantity,
+                skip_bin=line.skip_bin,
+                polarized_hint=line.polarized_hint,
+                warning=line.warning,
+            )
+            part = match_part(parsed, catalog)
+            new_id = part.id if part else None
+            if line.part_id != new_id:
+                line.part_id = new_id
+                changed = True
+        if changed:
+            session.commit()
+        return lines
+
+    def job_json(session, job: Job) -> dict:
+        lines = rematch_job_lines(session, job)
+        part_ids = [line.part_id for line in lines if line.part_id]
+        parts = {}
+        if part_ids:
+            parts = {
+                part.id: part
+                for part in session.query(Part).filter(Part.id.in_(part_ids)).all()
+            }
+
+        def public_line(line: JobLine) -> dict:
+            return {
+                "designators": line.designators,
+                "name": line.name,
+                "footprint": line.footprint,
+                "warning": line.warning,
+            }
+
+        def pack(line: JobLine) -> dict:
+            part = parts.get(line.part_id) if line.part_id else None
+            return {
+                "line": public_line(line),
+                "location": location_text(part.box, part.slot) if part else "",
+                "qty": qty_text(part) if part else "",
+            }
+
+        polar = [pack(line) for line in lines if line.polarized_hint and not line.skip_bin]
+        grouped: dict[int, list] = {}
+        for line in lines:
+            if line.skip_bin or not line.part_id:
+                continue
+            part = parts[line.part_id]
+            grouped.setdefault(part.box, []).append((part.slot, line.id, pack(line)))
+        box_groups = [
+            [box, [row for _, _, row in sorted(grouped[box])]] for box in sorted(grouped)
+        ]
+        unreg = [public_line(line) for line in lines if not line.part_id and not line.skip_bin]
+        skip = [public_line(line) for line in lines if line.skip_bin]
+        return {
+            "job": {"id": job.id, "title": job.title, "source_filename": job.source_filename},
+            "polar": polar,
+            "box_groups": box_groups,
+            "unreg": unreg,
+            "skip": skip,
+        }
+
+    @app.get("/api/jobs")
+    def api_list_jobs(request: Request):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            jobs = session.query(Job).order_by(Job.updated_at.desc(), Job.id.desc()).all()
+            return {
+                "jobs": [
+                    {"id": job.id, "title": job.title, "source_filename": job.source_filename}
+                    for job in jobs
+                ]
+            }
+
+    @app.post("/api/jobs")
+    async def api_upload_job(
+        request: Request,
+        title: str = Form(""),
+        csrf_token: str = Form(""),
+        file: UploadFile = File(None),
+    ):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request, csrf_token):
+            return fail(400, "提交已过期，请再保存一次。")
+        if file is None or not file.filename:
+            return fail(400, "请用嘉立创导出的 BOM")
+        content = await file.read()
+        with db() as session:
+            try:
+                job, error = persist_job(session, request, title, file.filename, content)
+            except BomError as exc:
+                return fail(400, str(exc))
+            if error:
+                return fail(400, error)
+            return JSONResponse({"id": job.id}, status_code=201)
+
+    @app.get("/api/jobs/{job_id}")
+    def api_get_job(request: Request, job_id: int):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                return fail(404, "没有这块板。")
+            return job_json(session, job)
+
     def render_jobs(request: Request, session, error: str | None = None):
         jobs = session.query(Job).order_by(Job.updated_at.desc(), Job.id.desc()).all()
         return templates.TemplateResponse(
@@ -1207,53 +1379,11 @@ def create_app() -> FastAPI:
                 return render_jobs(request, session, "请用嘉立创导出的 BOM")
             content = file.file.read()
             try:
-                parsed = parse_bom(content, file.filename)
+                job, error = persist_job(session, request, title, file.filename, content)
             except BomError as exc:
                 return render_jobs(request, session, str(exc))
-            board_title = title.strip() or Path(file.filename).stem[:80]
-            if not board_title:
-                return render_jobs(request, session, "请填一个短名称。")
-            parts = session.query(Part).filter(Part.active.is_(True)).all()
-            job = session.query(Job).filter(Job.title == board_title).one_or_none()
-            if job is None:
-                job = Job(
-                    title=board_title,
-                    source_filename=file.filename,
-                    uploaded_by=int(request.session["user_id"]),
-                )
-                session.add(job)
-                session.flush()
-            else:
-                session.query(JobLine).filter(JobLine.job_id == job.id).delete(
-                    synchronize_session=False
-                )
-                job.source_filename = file.filename
-            for line in parsed:
-                part = match_part(line, parts)
-                session.add(
-                    JobLine(
-                        job_id=job.id,
-                        designators=line.designators,
-                        name=line.name,
-                        footprint=line.footprint,
-                        supplier=line.supplier,
-                        quantity=line.quantity,
-                        part_id=part.id if part else None,
-                        skip_bin=line.skip_bin,
-                        polarized_hint=line.polarized_hint,
-                        warning=line.warning,
-                    )
-                )
-            user_id, who = actor(request)
-            write_event(
-                session,
-                user_id=user_id,
-                username=who,
-                action="job.upload",
-                summary=f"上传 {board_title}（{len(parsed)} 行）",
-                after={"title": board_title, "filename": file.filename},
-            )
-            session.commit()
+            if error:
+                return render_jobs(request, session, error)
             job_id = job.id
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
@@ -1266,32 +1396,7 @@ def create_app() -> FastAPI:
             job = session.get(Job, job_id)
             if job is None:
                 return HTMLResponse("没有这块板。", status_code=404)
-            catalog = session.query(Part).filter(Part.active.is_(True)).all()
-            lines = (
-                session.query(JobLine)
-                .filter(JobLine.job_id == job.id)
-                .order_by(JobLine.id)
-                .all()
-            )
-            changed = False
-            for line in lines:
-                parsed = ParsedLine(
-                    designators=line.designators,
-                    name=line.name,
-                    footprint=line.footprint,
-                    supplier=line.supplier,
-                    quantity=line.quantity,
-                    skip_bin=line.skip_bin,
-                    polarized_hint=line.polarized_hint,
-                    warning=line.warning,
-                )
-                part = match_part(parsed, catalog)
-                new_id = part.id if part else None
-                if line.part_id != new_id:
-                    line.part_id = new_id
-                    changed = True
-            if changed:
-                session.commit()
+            lines = rematch_job_lines(session, job)
             part_ids = [line.part_id for line in lines if line.part_id]
             parts = {}
             if part_ids:
