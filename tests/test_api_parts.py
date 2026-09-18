@@ -106,3 +106,106 @@ def test_missing_part_is_404(client):
     response = client.get("/api/parts/99")
     assert response.status_code == 404
     assert response.json()["detail"] == "没有这条料。"
+
+
+def test_duplicate_name_is_rejected(client):
+    api_login(client)
+    first = _create(client, name="0603 10kΩ 厚膜电阻", aliases="10K")
+    assert first.status_code == 201
+    clash = _create(
+        client,
+        name="0603 10kΩ 厚膜电阻",
+        aliases="1002",
+        box=3,
+        slot=6,
+    )
+    assert clash.status_code == 400
+    assert clash.json()["detail"] == "这颗料已在 3号盒第5格，不能重复登记。"
+
+
+def test_duplicate_alias_is_rejected(client):
+    api_login(client)
+    first = _create(client, name="普通 10KR", aliases="10KR", box=3, slot=5)
+    assert first.status_code == 201
+    clash = _create(
+        client,
+        name="另一颗 10KR",
+        aliases="10KR,1002",
+        box=4,
+        slot=1,
+    )
+    assert clash.status_code == 400
+    assert clash.json()["detail"] == "这颗料已在 3号盒第5格，不能重复登记。"
+
+
+def test_similar_aliases_are_not_duplicates(client):
+    api_login(client)
+    first = _create(
+        client,
+        name="10KR(0.1%)高精度电阻 R0603",
+        aliases="10KR高精度电阻",
+        box=3,
+        slot=5,
+    )
+    assert first.status_code == 201
+    second = _create(
+        client,
+        name="10KR电阻0603",
+        aliases="10KR",
+        box=3,
+        slot=6,
+    )
+    assert second.status_code == 201
+
+
+def test_deactivated_part_name_can_be_reused(client):
+    api_login(client)
+    part_id = _create(client, name="可停用", aliases="STOP1", box=3, slot=5).json()["id"]
+    stopped = client.post(f"/api/parts/{part_id}/deactivate", headers=_headers(client))
+    assert stopped.status_code == 204
+    again = _create(client, name="可停用", aliases="STOP1", box=3, slot=5)
+    assert again.status_code == 201
+
+
+def test_update_to_another_part_name_is_rejected(client):
+    api_login(client)
+    first = _create(client, name="料A", aliases="AA", box=3, slot=5)
+    second = _create(client, name="料B", aliases="BB", box=4, slot=2)
+    assert first.status_code == 201
+    assert second.status_code == 201
+    clash = client.put(
+        f"/api/parts/{second.json()['id']}",
+        json={
+            "name": "料A",
+            "aliases": "BB",
+            "box": 4,
+            "slot": 2,
+            "qty_kind": "few",
+            "polarized": False,
+            "note": "",
+        },
+        headers=_headers(client),
+    )
+    assert clash.status_code == 400
+    assert clash.json()["detail"] == "这颗料已在 3号盒第5格，不能重复登记。"
+
+
+def test_update_qty_without_name_change_is_ok(client):
+    api_login(client)
+    part_id = _create(client).json()["id"]
+    updated = client.put(
+        f"/api/parts/{part_id}",
+        json={
+            "name": "0603 10kΩ 厚膜电阻",
+            "aliases": "10K,1002",
+            "box": 3,
+            "slot": 5,
+            "qty_kind": "exact",
+            "qty_count": 20,
+            "polarized": False,
+            "note": "",
+        },
+        headers=_headers(client),
+    )
+    assert updated.status_code == 200
+    assert updated.json()["id"] == part_id

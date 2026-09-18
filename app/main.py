@@ -188,6 +188,19 @@ def create_app() -> FastAPI:
             query = query.filter(Part.id != exclude_id)
         return query.order_by(Part.id).first()
 
+    def same_part(session, name_norm: str, aliases_norm: str, exclude_id: int | None = None):
+        query = session.query(Part).filter(Part.active.is_(True))
+        if exclude_id is not None:
+            query = query.filter(Part.id != exclude_id)
+        incoming = {item for item in aliases_norm.split(",") if item}
+        for part in query.order_by(Part.id):
+            if part.name_norm == name_norm:
+                return part
+            existing = {item for item in part.aliases_norm.split(",") if item}
+            if incoming & existing:
+                return part
+        return None
+
     def actor(request: Request) -> tuple[int, str]:
         return int(request.session["user_id"]), str(request.session.get("username", ""))
 
@@ -262,6 +275,12 @@ def create_app() -> FastAPI:
             )
             if error:
                 return fail(400, error)
+            existing = same_part(session, fields["name_norm"], fields["aliases_norm"])
+            if existing:
+                return fail(
+                    400,
+                    f"这颗料已在 {location_text(existing.box, existing.slot)}，不能重复登记。",
+                )
             taken = occupied(session, fields["box"], fields["slot"])
             if taken:
                 return fail(
@@ -331,6 +350,17 @@ def create_app() -> FastAPI:
             )
             if error:
                 return fail(400, error)
+            existing = same_part(
+                session,
+                fields["name_norm"],
+                fields["aliases_norm"],
+                exclude_id=part.id,
+            )
+            if existing:
+                return fail(
+                    400,
+                    f"这颗料已在 {location_text(existing.box, existing.slot)}，不能重复登记。",
+                )
             taken = occupied(session, fields["box"], fields["slot"], exclude_id=part.id)
             if taken:
                 return fail(
