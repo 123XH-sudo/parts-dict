@@ -45,6 +45,28 @@ docker compose up -d --build
 
 Compose 把本机 `./data` 挂到容器 `/app/data`，升级镜像时库存不会丢。定期复制 `data/parts.db`。
 
+## 服务器更新
+
+默认目录 `/opt/parts-dict`。脚本会先备份 `data/` 和 `.env`，再拉 GitHub 最新代码并 `docker compose up -d --build`。库存文件不会被覆盖。
+
+第一次（目录里还没有 git 也可以）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/123XH-sudo/parts-dict/main/scripts/update.sh | bash
+```
+
+以后每次：
+
+```bash
+/opt/parts-dict/scripts/update.sh
+```
+
+备份在 `/opt/parts-dict-backups/`，默认留最近 10 份。目录或仓库地址不同时：
+
+```bash
+APP_DIR=/opt/parts-dict REPO=https://github.com/123XH-sudo/parts-dict.git /opt/parts-dict/scripts/update.sh
+```
+
 ## 反代 / HTTPS
 
 容器或 uvicorn 只监听内网 `8787`。用已有 Nginx 证书对外，例如：
