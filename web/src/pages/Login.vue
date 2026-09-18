@@ -1,7 +1,8 @@
 <template>
-  <div class="page narrow login">
+  <div class="login-wrap">
+    <div class="login">
     <h1>料盒字典</h1>
-    <p>登录后才能查料和改库存。</p>
+    <p class="hint">登录后才能查料和改库存。</p>
     <form @submit.prevent="submit">
       <label for="username">用户名</label>
       <input id="username" v-model="username" autocomplete="username" required>
@@ -10,6 +11,7 @@
       <button type="submit">登录</button>
     </form>
     <p v-if="error" class="error">{{ error }}</p>
+    </div>
   </div>
 </template>
 

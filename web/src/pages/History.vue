@@ -1,7 +1,8 @@
 <template>
   <div class="page">
     <h1>修改记录</h1>
-    <table v-if="rows.length">
+    <div v-if="rows.length" class="panel">
+    <table>
       <thead>
         <tr><th>时间</th><th>人</th><th>动作</th><th>对象</th><th>摘要</th></tr>
       </thead>
@@ -15,7 +16,8 @@
         </tr>
       </tbody>
     </table>
-    <p v-else class="empty">还没有修改记录。</p>
+    </div>
+    <p v-else class="empty panel">还没有修改记录。</p>
   </div>
 </template>
 

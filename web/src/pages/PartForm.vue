@@ -1,35 +1,75 @@
 <template>
-  <div class="page narrow">
-    <p><router-link to="/">返回查找</router-link></p>
-    <h1>{{ heading }}</h1>
-    <p v-if="error" class="error">{{ error }}</p>
-    <form @submit.prevent="save">
-      <label for="name">详细名称</label>
-      <input id="name" v-model="form.name" required>
-      <label for="aliases">通用简称（逗号分隔）</label>
-      <input id="aliases" v-model="form.aliases" required>
-      <label>盒号</label>
-      <div class="boxes">
-        <label v-for="n in boxList" :key="n">
-          <input v-model.number="form.box" type="radio" :value="n"> {{ n }}
-        </label>
+  <div class="page form-page">
+    <div class="panel form-panel">
+      <div class="form-head">
+        <h1>{{ heading }}</h1>
+        <router-link to="/">返回查找</router-link>
       </div>
-      <label for="slot">格号</label>
-      <input id="slot" v-model.number="form.slot" type="number" min="1" required>
-      <label>数量</label>
-      <label><input v-model="form.qty_kind" type="radio" value="empty"> 没有</label>
-      <label><input v-model="form.qty_kind" type="radio" value="few"> 少量</label>
-      <label><input v-model="form.qty_kind" type="radio" value="many"> 大量</label>
-      <label><input v-model="form.qty_kind" type="radio" value="exact"> 具体数字</label>
-      <input v-model.number="form.qty_count" type="number" min="0" placeholder="选具体数字时填写">
-      <label><input v-model="form.polarized" type="checkbox"> 有极性（贴反会坏）</label>
-      <label for="note">备注</label>
-      <input id="note" v-model="form.note">
-      <button type="submit">保存</button>
-    </form>
-    <p v-if="partId">
-      <button type="button" class="text-btn" @click="deactivate">停用这条料</button>
-    </p>
+      <p v-if="error" class="error">{{ error }}</p>
+      <form class="part-form" @submit.prevent="save">
+        <div class="row-2">
+          <div class="field">
+            <label for="name">详细名称</label>
+            <input id="name" v-model="form.name" required>
+          </div>
+          <div class="field">
+            <label for="aliases">通用简称（逗号分隔）</label>
+            <input id="aliases" v-model="form.aliases" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>盒号</label>
+          <div class="boxes compact">
+            <label v-for="n in boxList" :key="n">
+              <input v-model.number="form.box" type="radio" :value="n">
+              {{ n }}
+            </label>
+          </div>
+        </div>
+
+        <div class="row-slot">
+          <div class="field">
+            <label for="slot">格号</label>
+            <input id="slot" v-model.number="form.slot" type="number" min="1" required>
+          </div>
+          <div class="field">
+            <label>数量</label>
+            <div class="qty-line">
+              <div class="choices">
+                <label class="choice"><input v-model="form.qty_kind" type="radio" value="empty"> 没有</label>
+                <label class="choice"><input v-model="form.qty_kind" type="radio" value="few"> 少量</label>
+                <label class="choice"><input v-model="form.qty_kind" type="radio" value="many"> 大量</label>
+                <label class="choice"><input v-model="form.qty_kind" type="radio" value="exact"> 具体数字</label>
+              </div>
+              <input
+                v-model.number="form.qty_count"
+                class="qty-count"
+                type="number"
+                min="0"
+                placeholder="数量"
+                :disabled="form.qty_kind !== 'exact'"
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="row-2">
+          <label class="check">
+            <input v-model="form.polarized" type="checkbox"> 有极性（贴反会坏）
+          </label>
+          <div class="field">
+            <label for="note">备注</label>
+            <input id="note" v-model="form.note">
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit">保存</button>
+          <button v-if="partId" type="button" class="text-btn" @click="deactivate">停用这条料</button>
+        </div>
+      </form>
+    </div>
   </div>
 </template>
 

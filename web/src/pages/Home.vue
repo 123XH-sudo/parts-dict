@@ -9,7 +9,8 @@
         @input="schedule"
       >
     </form>
-    <table v-if="searched && results.length">
+    <div v-if="searched && results.length" class="panel">
+    <table>
       <thead>
         <tr><th>简称</th><th>详细名称</th><th>位置</th><th>数量</th><th></th></tr>
       </thead>
@@ -23,9 +24,10 @@
         </tr>
       </tbody>
     </table>
-    <p v-else-if="searched" class="empty">
+    </div>
+    <p v-else-if="searched" class="empty panel">
       没有「{{ q.trim() }}」。翻到后可以
-      <router-link :to="{ path: '/parts/new', query: { alias: q.trim() } }">登记：{{ q.trim() }}</router-link>
+      <router-link class="link" :to="{ path: '/parts/new', query: { alias: q.trim() } }">登记：{{ q.trim() }}</router-link>
     </p>
     <div v-else class="boxes">
       <button

@@ -2,6 +2,7 @@
   <div class="page">
     <p v-if="error" class="error">{{ error }}</p>
     <template v-if="page">
+      <p class="crumb"><router-link to="/jobs">本板贴片</router-link></p>
       <h1>{{ page.job.title }}</h1>
       <section class="polar">
         <h2>有极性，别贴反</h2>
@@ -20,6 +21,7 @@
         <p v-else>这一板没有需要极性提醒的料。</p>
       </section>
 
+      <div class="panel">
       <h2>按盒拿料</h2>
       <template v-if="page.box_groups.length">
         <div v-for="group in page.box_groups" :key="group[0]">
@@ -38,8 +40,10 @@
           </table>
         </div>
       </template>
-      <p v-else>还没有匹配到料盒里的料。</p>
+      <p v-else class="empty">还没有匹配到料盒里的料。</p>
+      </div>
 
+      <div class="panel">
       <h2>未登记</h2>
       <table v-if="page.unreg.length">
         <thead><tr><th>位号</th><th>规格</th><th>封装</th><th></th></tr></thead>
@@ -54,8 +58,10 @@
           </tr>
         </tbody>
       </table>
-      <p v-else>都已登记。</p>
+      <p v-else class="empty">都已登记。</p>
+      </div>
 
+      <div class="panel">
       <h2>不用从料盒拿</h2>
       <details>
         <summary>测试点、铜条等（{{ page.skip.length }}）</summary>
@@ -70,6 +76,7 @@
           </tbody>
         </table>
       </details>
+      </div>
     </template>
   </div>
 </template>

@@ -2,6 +2,7 @@
   <div class="page">
     <h1>本板贴片</h1>
     <p v-if="error" class="error">{{ error }}</p>
+    <div class="panel">
     <h2>上传嘉立创 BOM</h2>
     <form @submit.prevent="upload">
       <label for="title">短名称</label>
@@ -10,7 +11,9 @@
       <input id="file" type="file" accept=".xlsx,.csv" @change="onFile">
       <button type="submit">生成清单</button>
     </form>
+    </div>
     <template v-if="jobs.length">
+      <div class="panel">
       <h2>已上传的板</h2>
       <table>
         <thead><tr><th>名称</th><th>文件</th></tr></thead>
@@ -21,6 +24,7 @@
           </tr>
         </tbody>
       </table>
+      </div>
     </template>
   </div>
 </template>

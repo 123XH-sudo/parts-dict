@@ -2,15 +2,18 @@
   <div class="page">
     <h1>账号</h1>
     <p v-if="error" class="error">{{ error }}</p>
-    <p><a href="/api/backup.json">导出备份 JSON</a>（元件、用户不含密码、修改记录、本板清单）</p>
+    <p class="note"><a class="link" href="/api/backup.json">导出备份 JSON</a> · 元件、用户不含密码、修改记录、本板清单</p>
 
+    <div class="panel">
     <h2>盒数</h2>
     <form @submit.prevent="saveBoxes">
       <label for="box_count">当前盒数（1～99）</label>
       <input id="box_count" v-model.number="boxCount" type="number" min="1" max="99">
       <button type="submit">保存盒数</button>
     </form>
+    </div>
 
+    <div class="panel">
     <h2>用户</h2>
     <table>
       <thead>
@@ -42,7 +45,9 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
+    <div class="panel">
     <h2>开新账号</h2>
     <form @submit.prevent="createUser">
       <label for="username">用户名（字母数字下划线）</label>
@@ -53,6 +58,7 @@
       <input id="password" v-model="form.password" type="password" required>
       <button type="submit">创建组员</button>
     </form>
+    </div>
   </div>
 </template>
 
