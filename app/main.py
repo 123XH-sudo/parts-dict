@@ -19,7 +19,10 @@ from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
     box_count,
     hash_password,
+    layout_for,
     parse_box_count,
+    parse_layout_size,
+    save_box_layout,
     seed_admin,
     seed_settings,
     valid_username,
@@ -69,6 +72,11 @@ class PasswordBody(BaseModel):
 
 class BoxCountBody(BaseModel):
     box_count: int | str = ""
+
+
+class BoxLayoutBody(BaseModel):
+    cols: int | str = ""
+    rows: int | str = ""
 
 
 def qty_text(part: Part) -> str:
@@ -433,6 +441,93 @@ def create_app() -> FastAPI:
                 query = query.filter(AuditLog.part_id == int(part_id))
             logs = query.limit(200).all()
             return {"rows": [history_row(log) for log in logs]}
+
+    def box_summary(session, box_n: int) -> dict:
+        cols, rows = layout_for(session, box_n)
+        used = (
+            session.query(Part)
+            .filter(Part.active.is_(True), Part.box == box_n)
+            .count()
+        )
+        return {
+            "n": box_n,
+            "cols": cols,
+            "rows": rows,
+            "used": used,
+            "total": cols * rows,
+        }
+
+    def box_detail(session, box_n: int) -> dict:
+        cols, rows = layout_for(session, box_n)
+        total = cols * rows
+        parts = (
+            session.query(Part)
+            .filter(Part.active.is_(True), Part.box == box_n)
+            .order_by(Part.slot, Part.id)
+            .all()
+        )
+        slots: list = [None] * total
+        overflow = []
+        for part in parts:
+            if 1 <= part.slot <= total and slots[part.slot - 1] is None:
+                slots[part.slot - 1] = part_result(part)
+            else:
+                overflow.append(part_result(part))
+        return {
+            "n": box_n,
+            "cols": cols,
+            "rows": rows,
+            "slots": slots,
+            "overflow": overflow,
+        }
+
+    @app.get("/api/boxes")
+    def api_list_boxes(request: Request):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            n_boxes = box_count(session)
+            return {"boxes": [box_summary(session, n) for n in range(1, n_boxes + 1)]}
+
+    @app.get("/api/boxes/{box_n}")
+    def api_get_box(request: Request, box_n: int):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        with db() as session:
+            if box_n < 1 or box_n > box_count(session):
+                return fail(404, "没有这个盒。")
+            return box_detail(session, box_n)
+
+    @app.put("/api/boxes/{box_n}/layout")
+    def api_update_box_layout(request: Request, box_n: int, body: BoxLayoutBody):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        cols = parse_layout_size(body.cols)
+        rows = parse_layout_size(body.rows)
+        if cols is None or rows is None:
+            return fail(400, "列和行必须是 1～24 的整数。")
+        with db() as session:
+            if box_n < 1 or box_n > box_count(session):
+                return fail(404, "没有这个盒。")
+            old_cols, old_rows = layout_for(session, box_n)
+            save_box_layout(session, box_n, cols, rows)
+            user_id, who = actor(request)
+            write_event(
+                session,
+                user_id=user_id,
+                username=who,
+                action="settings.update",
+                summary=f"{box_n}号盒 {old_cols}×{old_rows} → {cols}×{rows}",
+                before={"box": box_n, "cols": old_cols, "rows": old_rows},
+                after={"box": box_n, "cols": cols, "rows": rows},
+            )
+            session.commit()
+        return {"n": box_n, "cols": cols, "rows": rows}
 
     @app.get("/api/users")
     def api_users(request: Request):

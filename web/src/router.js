@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { refreshSession, session } from "./session.js";
+import Box from "./pages/Box.vue";
 import Home from "./pages/Home.vue";
 import History from "./pages/History.vue";
 import Job from "./pages/Job.vue";
@@ -13,6 +14,7 @@ const router = createRouter({
   routes: [
     { path: "/login", component: Login, meta: { public: true } },
     { path: "/", component: Home },
+    { path: "/boxes/:n", component: Box },
     { path: "/parts/new", component: PartForm },
     { path: "/parts/:id/edit", component: PartForm },
     { path: "/jobs", component: Jobs },

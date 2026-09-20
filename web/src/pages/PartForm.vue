@@ -125,6 +125,14 @@ onMounted(async () => {
     form.name = alias;
     form.aliases = alias;
   }
+  const box = Number(route.query.box);
+  const slot = Number(route.query.slot);
+  if (Number.isInteger(box) && box >= 1) {
+    form.box = box;
+  }
+  if (Number.isInteger(slot) && slot >= 1) {
+    form.slot = slot;
+  }
 });
 
 function payload() {
@@ -153,12 +161,20 @@ async function save() {
       error.value = data?.detail || "没存上，请重试";
       return;
     }
-    router.push("/");
+    goBack();
   } catch {
     error.value = "没存上，请重试";
   } finally {
     busy.value = false;
   }
+}
+
+function goBack() {
+  if (form.box) {
+    router.push(`/boxes/${form.box}`);
+    return;
+  }
+  router.push("/");
 }
 
 async function deactivate() {
@@ -172,7 +188,7 @@ async function deactivate() {
       error.value = data?.detail || "没存上，请重试";
       return;
     }
-    router.push("/");
+    goBack();
   } catch {
     error.value = "没存上，请重试";
   } finally {

@@ -30,42 +30,72 @@
       没有「{{ q.trim() }}」。翻到后可以
       <router-link class="link" :to="{ path: '/parts/new', query: { alias: q.trim() } }">登记：{{ q.trim() }}</router-link>
     </p>
-    <div v-else class="boxes">
+    <div v-else class="box-cards">
       <button
-        v-for="n in boxes"
-        :key="n"
+        v-for="card in cards"
+        :key="card.n"
         type="button"
-        :class="{ on: q.trim() === n + '号盒' }"
-        @click="goBox(n)"
+        class="box-card"
+        @click="goBox(card.n)"
       >
-        {{ n }}号盒
+        <span class="box-card-name">{{ card.n }}号盒</span>
+        <span class="box-card-meta">{{ cardLabel(card) }}</span>
       </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { readJson, request } from "../api.js";
+import { session } from "../session.js";
 
 const route = useRoute();
 const router = useRouter();
 const q = ref(String(route.query.q || ""));
 const results = ref([]);
-const boxes = ref([]);
+const summaries = ref([]);
 const searched = ref(false);
 const loading = ref(false);
 let timer = 0;
 
+const cards = computed(() => {
+  const count = session.user?.box_count || summaries.value.length || 12;
+  const byN = Object.fromEntries(summaries.value.map((row) => [row.n, row]));
+  return Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    return byN[n] || { n, cols: 8, rows: 6, used: null, total: 48 };
+  });
+});
+
+function cardLabel(card) {
+  if (card.used == null) return `${card.total} 格`;
+  return `${card.used}/${card.total}`;
+}
+
+async function loadBoxes() {
+  const res = await request("GET", "/api/boxes");
+  const data = await readJson(res);
+  if (res.ok) {
+    summaries.value = data.boxes || [];
+  }
+}
+
 async function load() {
   const query = q.value.trim();
   loading.value = Boolean(query);
-  const res = await request("GET", "/api/parts" + (query ? `?q=${encodeURIComponent(query)}` : ""));
+  if (!query) {
+    searched.value = false;
+    results.value = [];
+    loading.value = false;
+    await loadBoxes();
+    return;
+  }
+  const res = await request("GET", `/api/parts?q=${encodeURIComponent(query)}`);
   const data = await readJson(res);
   results.value = data.results || [];
-  boxes.value = data.boxes || [];
-  searched.value = Boolean(query);
+  searched.value = true;
   loading.value = false;
 }
 
@@ -83,8 +113,7 @@ function schedule() {
 }
 
 function goBox(n) {
-  q.value = `${n}号盒`;
-  router.push({ path: "/", query: { q: q.value } });
+  router.push(`/boxes/${n}`);
 }
 
 watch(
