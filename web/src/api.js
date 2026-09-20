@@ -1,10 +1,25 @@
 let csrf = "";
+const inflight = new Map();
 
 export function setCsrf(token) {
   if (token) csrf = token;
 }
 
 export async function request(method, url, { json, form } = {}) {
+  const write = method !== "GET" && method !== "HEAD";
+  const key = write ? `${method}:${url}:${json ? JSON.stringify(json) : ""}` : "";
+  if (key && inflight.has(key)) {
+    return inflight.get(key);
+  }
+  const pending = send(method, url, json, form);
+  if (key) {
+    inflight.set(key, pending);
+    pending.finally(() => inflight.delete(key));
+  }
+  return pending;
+}
+
+async function send(method, url, json, form) {
   const headers = {};
   if (csrf) headers["X-CSRF-Token"] = csrf;
   let body;

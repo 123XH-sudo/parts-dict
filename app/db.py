@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -23,8 +23,20 @@ def make_engine(url: str | None = None):
             Path(raw).parent.mkdir(parents=True, exist_ok=True)
         elif raw.startswith("/") and "/" in raw[1:]:
             Path(raw).parent.mkdir(parents=True, exist_ok=True)
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args)
+    connect_args = (
+        {"check_same_thread": False, "timeout": 1.0} if url.startswith("sqlite") else {}
+    )
+    engine = create_engine(url, connect_args=connect_args)
+    if url.startswith("sqlite"):
+
+        @event.listens_for(engine, "connect")
+        def _sqlite_pragmas(dbapi_conn, _connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=1000")
+            cursor.close()
+
+    return engine
 
 
 def make_session_factory(engine):

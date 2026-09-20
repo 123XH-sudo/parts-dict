@@ -190,6 +190,52 @@ def test_update_to_another_part_name_is_rejected(client):
     assert clash.json()["detail"] == "这颗料已在 3号盒第5格，不能重复登记。"
 
 
+def test_concurrent_same_save_creates_only_one_row(tmp_path, monkeypatch):
+    import asyncio
+
+    from httpx import ASGITransport, AsyncClient
+
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key-not-for-production")
+    monkeypatch.setenv("ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("ADMIN_PASSWORD", "adminpass")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'race.db'}")
+    from app.main import create_app
+
+    app = create_app()
+    body = {
+        "name": "并发电阻 10K",
+        "aliases": "RACE10K",
+        "box": 3,
+        "slot": 5,
+        "qty_kind": "few",
+        "polarized": False,
+        "note": "",
+    }
+
+    async def run():
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            token = (await ac.get("/api/csrf")).json()["csrf_token"]
+            login = await ac.post(
+                "/api/login",
+                json={"username": "admin", "password": "adminpass"},
+                headers={"X-CSRF-Token": token},
+            )
+            assert login.status_code == 204
+            token = (await ac.get("/api/csrf")).json()["csrf_token"]
+            headers = {"X-CSRF-Token": token}
+            first, second = await asyncio.gather(
+                ac.post("/api/parts", json=body, headers=headers),
+                ac.post("/api/parts", json=body, headers=headers),
+            )
+            return first, second
+
+    first, second = asyncio.run(run())
+    codes = sorted([first.status_code, second.status_code])
+    assert codes == [201, 400]
+    detail = first.json().get("detail") if first.status_code == 400 else second.json().get("detail")
+    assert "已在 3号盒第5格" in detail
+
+
 def test_update_qty_without_name_change_is_ok(client):
     api_login(client)
     part_id = _create(client).json()["id"]

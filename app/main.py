@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -107,6 +108,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="料盒字典")
     app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax")
+    part_write = threading.Lock()
 
     def db():
         return SessionLocal()
@@ -115,6 +117,10 @@ def create_app() -> FastAPI:
         token = secrets.token_hex(16)
         request.session["csrf_token"] = token
         return token
+
+    def current_csrf(request: Request) -> str:
+        token = str(request.session.get("csrf_token") or "")
+        return token or new_csrf(request)
 
     def valid_csrf(request: Request, token: str) -> bool:
         expected = request.session.get("csrf_token", "")
@@ -177,7 +183,7 @@ def create_app() -> FastAPI:
             "display_name": request.session.get("display_name", ""),
             "role": request.session.get("role", ""),
             "box_count": n_boxes,
-            "csrf_token": new_csrf(request),
+            "csrf_token": current_csrf(request),
         }
 
     def occupied(session, box_n: int, slot_n: int, exclude_id: int | None = None):
@@ -260,59 +266,60 @@ def create_app() -> FastAPI:
             return gate
         if not check_csrf(request):
             return fail(400, "提交已过期，请再保存一次。")
-        with db() as session:
-            n_boxes = box_count(session)
-            error, fields = parse_part_fields(
-                n_boxes,
-                body.name,
-                body.aliases,
-                body.box,
-                body.slot,
-                body.qty_kind,
-                body.qty_count,
-                body.note,
-                body.polarized,
-            )
-            if error:
-                return fail(400, error)
-            existing = same_part(session, fields["name_norm"], fields["aliases_norm"])
-            if existing:
-                return fail(
-                    400,
-                    f"这颗料已在 {location_text(existing.box, existing.slot)}，不能重复登记。",
+        with part_write:
+            with db() as session:
+                n_boxes = box_count(session)
+                error, fields = parse_part_fields(
+                    n_boxes,
+                    body.name,
+                    body.aliases,
+                    body.box,
+                    body.slot,
+                    body.qty_kind,
+                    body.qty_count,
+                    body.note,
+                    body.polarized,
                 )
-            taken = occupied(session, fields["box"], fields["slot"])
-            if taken:
-                return fail(
-                    400,
-                    f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。",
+                if error:
+                    return fail(400, error)
+                existing = same_part(session, fields["name_norm"], fields["aliases_norm"])
+                if existing:
+                    return fail(
+                        400,
+                        f"这颗料已在 {location_text(existing.box, existing.slot)}，不能重复登记。",
+                    )
+                taken = occupied(session, fields["box"], fields["slot"])
+                if taken:
+                    return fail(
+                        400,
+                        f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。",
+                    )
+                part = Part(
+                    name=fields["name"],
+                    aliases=fields["aliases"],
+                    aliases_norm=fields["aliases_norm"],
+                    name_norm=fields["name_norm"],
+                    box=fields["box"],
+                    slot=fields["slot"],
+                    qty_kind=fields["qty_kind"],
+                    qty_count=fields["qty_count"],
+                    note=fields["note"],
+                    polarized=fields["polarized"],
+                    active=True,
+                    created_by=int(request.session["user_id"]),
                 )
-            part = Part(
-                name=fields["name"],
-                aliases=fields["aliases"],
-                aliases_norm=fields["aliases_norm"],
-                name_norm=fields["name_norm"],
-                box=fields["box"],
-                slot=fields["slot"],
-                qty_kind=fields["qty_kind"],
-                qty_count=fields["qty_count"],
-                note=fields["note"],
-                polarized=fields["polarized"],
-                active=True,
-                created_by=int(request.session["user_id"]),
-            )
-            session.add(part)
-            session.flush()
-            write_audit(
-                session,
-                user_id=int(request.session["user_id"]),
-                username=str(request.session.get("username", "")),
-                action="part.create",
-                part=part,
-                before=None,
-            )
-            session.commit()
-            return JSONResponse({"id": part.id}, status_code=201)
+                session.add(part)
+                session.flush()
+                write_audit(
+                    session,
+                    user_id=int(request.session["user_id"]),
+                    username=str(request.session.get("username", "")),
+                    action="part.create",
+                    part=part,
+                    before=None,
+                )
+                session.commit()
+                return JSONResponse({"id": part.id}, status_code=201)
 
     @app.get("/api/parts/{part_id}")
     def api_get_part(request: Request, part_id: int):
@@ -332,62 +339,63 @@ def create_app() -> FastAPI:
             return gate
         if not check_csrf(request):
             return fail(400, "提交已过期，请再保存一次。")
-        with db() as session:
-            n_boxes = box_count(session)
-            part = session.get(Part, part_id)
-            if part is None:
-                return fail(404, "没有这条料。")
-            error, fields = parse_part_fields(
-                n_boxes,
-                body.name,
-                body.aliases,
-                body.box,
-                body.slot,
-                body.qty_kind,
-                body.qty_count,
-                body.note,
-                body.polarized,
-            )
-            if error:
-                return fail(400, error)
-            existing = same_part(
-                session,
-                fields["name_norm"],
-                fields["aliases_norm"],
-                exclude_id=part.id,
-            )
-            if existing:
-                return fail(
-                    400,
-                    f"这颗料已在 {location_text(existing.box, existing.slot)}，不能重复登记。",
+        with part_write:
+            with db() as session:
+                n_boxes = box_count(session)
+                part = session.get(Part, part_id)
+                if part is None:
+                    return fail(404, "没有这条料。")
+                error, fields = parse_part_fields(
+                    n_boxes,
+                    body.name,
+                    body.aliases,
+                    body.box,
+                    body.slot,
+                    body.qty_kind,
+                    body.qty_count,
+                    body.note,
+                    body.polarized,
                 )
-            taken = occupied(session, fields["box"], fields["slot"], exclude_id=part.id)
-            if taken:
-                return fail(
-                    400,
-                    f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。",
+                if error:
+                    return fail(400, error)
+                existing = same_part(
+                    session,
+                    fields["name_norm"],
+                    fields["aliases_norm"],
+                    exclude_id=part.id,
                 )
-            before = snapshot(part)
-            part.name = fields["name"]
-            part.aliases = fields["aliases"]
-            part.aliases_norm = fields["aliases_norm"]
-            part.name_norm = fields["name_norm"]
-            part.box = fields["box"]
-            part.slot = fields["slot"]
-            part.qty_kind = fields["qty_kind"]
-            part.qty_count = fields["qty_count"]
-            part.note = fields["note"]
-            part.polarized = fields["polarized"]
-            write_audit(
-                session,
-                user_id=int(request.session["user_id"]),
-                username=str(request.session.get("username", "")),
-                action="part.update",
-                part=part,
-                before=before,
-            )
-            session.commit()
-            return {"id": part.id}
+                if existing:
+                    return fail(
+                        400,
+                        f"这颗料已在 {location_text(existing.box, existing.slot)}，不能重复登记。",
+                    )
+                taken = occupied(session, fields["box"], fields["slot"], exclude_id=part.id)
+                if taken:
+                    return fail(
+                        400,
+                        f"{location_text(fields['box'], fields['slot'])}已经有 {taken.aliases}，一格只能放一种料。",
+                    )
+                before = snapshot(part)
+                part.name = fields["name"]
+                part.aliases = fields["aliases"]
+                part.aliases_norm = fields["aliases_norm"]
+                part.name_norm = fields["name_norm"]
+                part.box = fields["box"]
+                part.slot = fields["slot"]
+                part.qty_kind = fields["qty_kind"]
+                part.qty_count = fields["qty_count"]
+                part.note = fields["note"]
+                part.polarized = fields["polarized"]
+                write_audit(
+                    session,
+                    user_id=int(request.session["user_id"]),
+                    username=str(request.session.get("username", "")),
+                    action="part.update",
+                    part=part,
+                    before=before,
+                )
+                session.commit()
+                return {"id": part.id}
 
     @app.post("/api/parts/{part_id}/deactivate")
     def api_deactivate_part(request: Request, part_id: int):

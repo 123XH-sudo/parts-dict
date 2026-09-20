@@ -25,6 +25,7 @@
       </tbody>
     </table>
     </div>
+    <p v-else-if="loading" class="empty panel">查找中…</p>
     <p v-else-if="searched" class="empty panel">
       没有「{{ q.trim() }}」。翻到后可以
       <router-link class="link" :to="{ path: '/parts/new', query: { alias: q.trim() } }">登记：{{ q.trim() }}</router-link>
@@ -54,15 +55,18 @@ const q = ref(String(route.query.q || ""));
 const results = ref([]);
 const boxes = ref([]);
 const searched = ref(false);
+const loading = ref(false);
 let timer = 0;
 
 async function load() {
   const query = q.value.trim();
+  loading.value = Boolean(query);
   const res = await request("GET", "/api/parts" + (query ? `?q=${encodeURIComponent(query)}` : ""));
   const data = await readJson(res);
   results.value = data.results || [];
   boxes.value = data.boxes || [];
   searched.value = Boolean(query);
+  loading.value = false;
 }
 
 function schedule() {

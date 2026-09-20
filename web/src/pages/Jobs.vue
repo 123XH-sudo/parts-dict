@@ -9,7 +9,7 @@
       <input id="title" v-model="title" placeholder="无刷驱动 PCB1">
       <label for="file">xlsx 或 csv</label>
       <input id="file" type="file" accept=".xlsx,.csv" @change="onFile">
-      <button type="submit">生成清单</button>
+      <button type="submit" :disabled="busy">{{ busy ? "生成中…" : "生成清单" }}</button>
     </form>
     </div>
     <template v-if="jobs.length">
@@ -39,6 +39,7 @@ const title = ref("");
 const file = ref(null);
 const jobs = ref([]);
 const error = ref("");
+const busy = ref(false);
 
 async function load() {
   const res = await request("GET", "/api/jobs");
@@ -51,11 +52,13 @@ function onFile(event) {
 }
 
 async function upload() {
+  if (busy.value) return;
   error.value = "";
   if (!file.value) {
     error.value = "请用嘉立创导出的 BOM";
     return;
   }
+  busy.value = true;
   try {
     const token = await loadCsrf();
     const form = new FormData();
@@ -71,6 +74,8 @@ async function upload() {
     router.push(`/jobs/${data.id}`);
   } catch {
     error.value = "没存上，请重试";
+  } finally {
+    busy.value = false;
   }
 }
 

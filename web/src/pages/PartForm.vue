@@ -65,8 +65,8 @@
         </div>
 
         <div class="form-actions">
-          <button type="submit">保存</button>
-          <button v-if="partId" type="button" class="text-btn" @click="deactivate">停用这条料</button>
+          <button type="submit" :disabled="busy">{{ busy ? "保存中…" : "保存" }}</button>
+          <button v-if="partId" type="button" class="text-btn" :disabled="busy" @click="deactivate">停用这条料</button>
         </div>
       </form>
     </div>
@@ -82,6 +82,7 @@ import { session } from "../session.js";
 const route = useRoute();
 const router = useRouter();
 const error = ref("");
+const busy = ref(false);
 const partId = computed(() => route.params.id);
 const heading = computed(() => (partId.value ? "改元件" : "登记元件"));
 const boxList = computed(() => {
@@ -140,7 +141,9 @@ function payload() {
 }
 
 async function save() {
+  if (busy.value) return;
   error.value = "";
+  busy.value = true;
   try {
     const res = partId.value
       ? await request("PUT", `/api/parts/${partId.value}`, { json: payload() })
@@ -153,12 +156,15 @@ async function save() {
     router.push("/");
   } catch {
     error.value = "没存上，请重试";
+  } finally {
+    busy.value = false;
   }
 }
 
 async function deactivate() {
-  if (!partId.value) return;
+  if (!partId.value || busy.value) return;
   error.value = "";
+  busy.value = true;
   try {
     const res = await request("POST", `/api/parts/${partId.value}/deactivate`);
     if (!res.ok) {
@@ -169,6 +175,8 @@ async function deactivate() {
     router.push("/");
   } catch {
     error.value = "没存上，请重试";
+  } finally {
+    busy.value = false;
   }
 }
 </script>

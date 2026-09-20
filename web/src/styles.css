@@ -491,6 +491,12 @@ button.primary:hover {
   background: #2c313a;
 }
 
+button[type="submit"]:disabled,
+button.primary:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 button.text-btn,
 button.quiet {
   background: none;

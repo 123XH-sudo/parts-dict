@@ -20,7 +20,7 @@
 <script setup>
 import { useRoute, useRouter } from "vue-router";
 import { request } from "./api.js";
-import { refreshSession, session } from "./session.js";
+import { session } from "./session.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -35,5 +35,4 @@ async function logout() {
   router.push("/login");
 }
 
-refreshSession();
 </script>
