@@ -64,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/123XH-sudo/parts-dict/main/scripts/
 备份在 `/opt/parts-dict-backups/`，默认留最近 10 份。目录或仓库地址不同时：
 
 ```bash
-APP_DIR=/opt/parts-dict REPO=https://github.com/123XH-sudo/parts-dict.git /opt/parts-dict/scripts/update.sh
+APP_DIR=/opt/parts-dict REPO=git@github.com:123XH-sudo/parts-dict.git /opt/parts-dict/scripts/update.sh
 ```
 
 ## 反代 / HTTPS

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/parts-dict}"
-REPO="${REPO:-https://github.com/123XH-sudo/parts-dict.git}"
+REPO="${REPO:-git@github.com:123XH-sudo/parts-dict.git}"
 BRANCH="${BRANCH:-main}"
 BACKUP_ROOT="${BACKUP_ROOT:-/opt/parts-dict-backups}"
 KEEP_BACKUPS="${KEEP_BACKUPS:-10}"
