@@ -28,7 +28,7 @@
         :key="index"
         type="button"
         class="slot-cell"
-        :class="{ filled: part, polar: part && part.polarized }"
+        :class="{ filled: part, 'has-polar': part && part.polarized }"
         @click="openSlot(index + 1, part)"
       >
         <span class="slot-num">{{ index + 1 }}</span>

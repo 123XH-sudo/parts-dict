@@ -664,6 +664,7 @@ summary {
 .slot-grid {
   display: grid;
   gap: 6px;
+  grid-auto-rows: 80px;
 }
 
 .slot-cell {
@@ -671,14 +672,17 @@ summary {
   flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
-  gap: 4px;
-  min-height: 64px;
+  gap: 2px;
+  height: 80px;
+  min-height: 80px;
+  max-height: 80px;
   padding: 6px 7px;
   border: 1px dashed var(--line-strong);
   border-radius: 6px;
   background: #f7f8fa;
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
 }
 
 .slot-cell.filled {
@@ -686,9 +690,9 @@ summary {
   background: var(--surface);
 }
 
-.slot-cell.polar {
-  background: var(--polar-bg);
-  border-color: var(--polar-line);
+.slot-cell.has-polar {
+  background: #f8ecec;
+  border-color: #d9b3b3;
 }
 
 .slot-cell:hover {
@@ -699,16 +703,23 @@ summary {
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.2;
+  flex-shrink: 0;
 }
 
 .slot-name {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 
 .overflow {
