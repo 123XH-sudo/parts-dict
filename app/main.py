@@ -49,6 +49,12 @@ class LoginBody(BaseModel):
     password: str = ""
 
 
+class RegisterBody(BaseModel):
+    username: str = ""
+    display_name: str = ""
+    password: str = ""
+
+
 class PartBody(BaseModel):
     name: str = ""
     aliases: str = ""
@@ -166,6 +172,45 @@ def create_app() -> FastAPI:
             )
             if user is None or not verify_password(body.password, user.password_hash):
                 return fail(400, "用户名或密码不对")
+            request.session["user_id"] = user.id
+            request.session["username"] = user.username
+            request.session["display_name"] = user.display_name
+            request.session["role"] = user.role
+        return Response(status_code=204)
+
+    @app.post("/api/register")
+    def api_register(request: Request, body: RegisterBody):
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            name = body.username.strip()
+            shown = body.display_name.strip() or name
+            if not valid_username(name):
+                return fail(400, "用户名要 3～32 个字母、数字或下划线。")
+            if len(shown) > 64:
+                return fail(400, "显示名最多 64 个字。")
+            if len(body.password) < 8:
+                return fail(400, "密码至少 8 位。")
+            if session.query(User).filter(User.username == name).one_or_none():
+                return fail(400, "这个用户名已经有了。")
+            user = User(
+                username=name,
+                password_hash=hash_password(body.password),
+                display_name=shown,
+                role="member",
+                active=True,
+            )
+            session.add(user)
+            session.flush()
+            write_event(
+                session,
+                user_id=user.id,
+                username=name,
+                action="user.register",
+                summary=f"自己注册了账号 {name}",
+                after={"username": name, "role": "member"},
+            )
+            session.commit()
             request.session["user_id"] = user.id
             request.session["username"] = user.username
             request.session["display_name"] = user.display_name

@@ -10,6 +10,7 @@
       <input id="password" v-model="password" type="password" autocomplete="current-password" required>
       <button type="submit">登录</button>
     </form>
+    <p class="switch"><router-link to="/register">没有账号？注册</router-link></p>
     <p v-if="error" class="error">{{ error }}</p>
     </div>
   </div>

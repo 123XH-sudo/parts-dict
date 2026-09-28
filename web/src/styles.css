@@ -142,6 +142,15 @@ select {
   font-size: 13px;
 }
 
+.switch {
+  margin: 14px 0 0;
+  font-size: 13px;
+}
+
+.switch a {
+  font-weight: 600;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
