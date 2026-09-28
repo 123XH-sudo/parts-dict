@@ -210,6 +210,10 @@ def parse_bom(content: bytes, filename: str) -> list[ParsedLine]:
     return _as_lines(header, rows[1:])
 
 
+_PKG_CODES = ("0201", "0402", "0603", "0805", "1206", "1210", "1812", "2010", "2512", "0602", "0508")
+_PKG_RE = re.compile(r"(?<!\d)(" + "|".join(_PKG_CODES) + r")(?!\d)")
+
+
 def _part_keys(part: Part) -> set[str]:
     keys = {normalize(part.name)}
     keys.update(normalize(item) for item in parse_aliases(part.aliases))
@@ -224,6 +228,156 @@ def _package_ok(part: Part, short: str) -> bool:
     return short in haystack.replace(",", " ")
 
 
+def _loose_text(text: str) -> str:
+    return (
+        text.replace("Ω", "")
+        .replace("ω", "")
+        .replace("µ", "u")
+        .replace("μ", "u")
+        .lower()
+    )
+
+
+def _pieces(text: str) -> list[str]:
+    return [item for item in re.split(r"[\s,，()（）/]+", _loose_text(text)) if item]
+
+
+def _res_values(text: str) -> set[str]:
+    blob = _loose_text(text)
+    found: set[str] = set()
+    for match in re.finditer(r"(?<![0-9.])(\d+)([kmg])(\d+)r?(?![a-z0-9.])", blob):
+        found.add(f"{match.group(1)}.{match.group(3)}{match.group(2)}")
+    for match in re.finditer(r"(?<![0-9.])(\d+\.?\d*)([kmg])r?(?![a-z0-9.])", blob):
+        found.add(match.group(1) + match.group(2))
+    for match in re.finditer(r"(?<![0-9.])(\d+\.?\d*)r(?![a-z0-9.])", blob):
+        found.add(match.group(1))
+    return found
+
+
+def _cap_values(text: str) -> set[str]:
+    blob = _loose_text(text)
+    return {
+        match.group(1) + match.group(2) + "f"
+        for match in re.finditer(r"(?<![0-9.])(\d+\.?\d*)([pnu])f(?![a-z0-9.])", blob)
+    }
+
+
+def _volt_values(text: str) -> set[str]:
+    return {
+        match.group(1)
+        for piece in _pieces(text)
+        if (match := re.fullmatch(r"(\d+\.?\d*)v", piece))
+    }
+
+
+def _package_codes(text: str) -> set[str]:
+    return set(_PKG_RE.findall(_loose_text(text)))
+
+
+def _is_precision(text: str) -> bool:
+    return "0.1%" in text or "高精度" in text
+
+
+def _packages_conflict(part: Part, short: str) -> bool:
+    if not re.fullmatch(r"\d{4}", short or ""):
+        return False
+    pkgs = _package_codes(f"{part.name} {part.aliases}")
+    return bool(pkgs) and short not in pkgs
+
+
+def _mpn_tokens(text: str) -> set[str]:
+    found: set[str] = set()
+    for piece in _pieces(text):
+        if len(piece) < 6 or piece in _PKG_CODES:
+            continue
+        if re.search(r"[\u4e00-\u9fff]", piece):
+            continue
+        if not re.search(r"[a-z]", piece) or not re.search(r"\d", piece):
+            continue
+        if re.fullmatch(r"[0-9.]+[kmg]?r?", piece) or re.fullmatch(r"[0-9.]+[pnu]f", piece):
+            continue
+        if re.fullmatch(r"[0-9.]+v", piece):
+            continue
+        found.add(piece)
+    return found
+
+
+def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]:
+    bom_res = _res_values(line.name)
+    bom_caps = _cap_values(line.name)
+    if bool(bom_res) == bool(bom_caps):
+        return []
+    kind = "cap" if bom_caps else "res"
+    bom_volts = _volt_values(line.name)
+    bom_precise = _is_precision(line.name)
+    pkg = short if re.fullmatch(r"\d{4}", short or "") else ""
+    strong: list[Part] = []
+    weak: list[Part] = []
+    for part in parts:
+        if not part.active:
+            continue
+        text = f"{part.name} {part.aliases}"
+        if _is_precision(text) and not bom_precise:
+            continue
+        if kind == "res":
+            if not (_res_values(text) & bom_res):
+                continue
+            if re.search(r"ntc|热敏", text, re.I) and not re.search(r"ntc|热敏", line.name, re.I):
+                continue
+        else:
+            if not (_cap_values(text) & bom_caps):
+                continue
+            volts = _volt_values(text)
+            if bom_volts and volts and not (bom_volts & volts):
+                continue
+        pkgs = _package_codes(text)
+        if pkg and pkgs and pkg not in pkgs:
+            continue
+        if pkg and pkg in pkgs:
+            strong.append(part)
+        else:
+            weak.append(part)
+    chosen = strong or weak
+    if kind == "cap" and not bom_volts and len(chosen) > 1:
+        signatures = {
+            frozenset(_volt_values(f"{part.name} {part.aliases}")) for part in chosen
+        }
+        if len(signatures) > 1:
+            return []
+    if len(chosen) == 1:
+        return chosen
+    return []
+
+
+def _mpn_hits(line: ParsedLine, parts: list[Part]) -> list[Part]:
+    bom_tokens = _mpn_tokens(line.name)
+    bom_whole = re.sub(r"\s+", "", _loose_text(line.name))
+    hits: list[Part] = []
+    for part in parts:
+        if not part.active:
+            continue
+        matched = False
+        for token in _mpn_tokens(f"{part.name} {part.aliases}"):
+            if token in bom_tokens or token == bom_whole:
+                matched = True
+                break
+            if bom_whole.startswith(token) and re.fullmatch(r"[a-z]{1,4}", bom_whole[len(token) :]):
+                matched = True
+                break
+            targets = bom_tokens | {bom_whole}
+            if any(
+                token.startswith(bom) and re.fullmatch(r"-[a-z0-9]+", token[len(bom) :])
+                for bom in targets
+            ):
+                matched = True
+                break
+        if matched:
+            hits.append(part)
+    if len(hits) == 1:
+        return hits
+    return []
+
+
 def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
     if line.skip_bin:
         return None
@@ -233,6 +387,8 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
     named: list[Part] = []
     for part in parts:
         if not part.active:
+            continue
+        if _packages_conflict(part, short):
             continue
         keys = _part_keys(part)
         if keys & variants:
@@ -247,4 +403,10 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
                 return part
     if len(named) == 1:
         return named[0]
+    passive = _passive_hits(line, parts, short)
+    if len(passive) == 1:
+        return passive[0]
+    mpn = _mpn_hits(line, parts)
+    if len(mpn) == 1:
+        return mpn[0]
     return None
