@@ -97,3 +97,29 @@ def test_precision_mpn_selects_precision_part():
 def test_precision_mpn_without_precision_stock_stays_unmatched():
     ordinary = _part("4.7KR电阻0603", "4.7K 0603")
     assert match_part(_line("4.7kΩ", mpn="RT0603BRD074K7L"), [ordinary]) is None
+
+
+def test_capacitor_voltage_must_cover_bom_voltage():
+    low = _part("22uF 6.3V 0603", "22uF 6.3V 0603")
+    mid = _part("22uF 25V 0603", "22uF 25V 0603", slot=2)
+    high = _part("22uF 50V 0603", "22uF 50V 0603", slot=3)
+    parts = [low, mid, high]
+
+    assert match_part(_line("22uF 12V", "C0603"), parts) is mid
+    assert match_part(_line("22uF 25V", "C0603"), parts) is mid
+    assert match_part(_line("22uF 30V", "C0603"), parts) is high
+    assert match_part(_line("22uF 6.3V", "C0603"), parts) is low
+    assert match_part(_line("22uF 60V", "C0603"), parts) is None
+
+
+def test_capacitor_without_bom_voltage_stays_unmatched_when_ratings_differ():
+    low = _part("22uF 6.3V 0603", "22uF 6.3V 0603")
+    high = _part("22uF 50V 0603", "22uF 50V 0603", slot=2)
+
+    assert match_part(_line("22uF", "C0603"), [low, high]) is None
+
+
+def test_capacitor_with_unknown_stock_voltage_is_last_resort():
+    unknown = _part("22uF 0603 暂无电压", "22uF 0603 暂无电压")
+
+    assert match_part(_line("22uF 25V", "C0603"), [unknown]) is unknown

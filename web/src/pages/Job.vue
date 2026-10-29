@@ -8,12 +8,17 @@
         <h2>有极性，别贴反</h2>
         <div v-if="page.polar.length" class="table-wrap">
           <table class="job-table polar-table">
-            <thead><tr><th>位号</th><th>规格</th><th>封装</th><th>位置</th><th>提醒</th></tr></thead>
+            <thead><tr><th>位号</th><th>规格</th><th>封装</th><th>耐压</th><th>位置</th><th>提醒</th></tr></thead>
             <tbody>
               <tr v-for="(row, i) in page.polar" :key="'p' + i">
                 <td class="designators"><Designators :text="row.line.designators" /></td>
                 <td>{{ row.line.name }}</td>
                 <td>{{ row.line.footprint }}</td>
+                <td class="voltage" :title="row.bom_voltage || row.part_voltage ? 'BOM 电压 → 库存耐压' : ''">
+                  <template v-if="row.bom_voltage || row.part_voltage">
+                    {{ row.bom_voltage || "—" }} → {{ row.part_voltage || "未标" }}
+                  </template>
+                </td>
                 <td class="loc">{{ row.location || "未登记" }}</td>
                 <td>{{ row.line.warning }}</td>
               </tr>
@@ -30,12 +35,17 @@
           <h3>{{ group[0] }}号盒</h3>
           <div class="table-wrap">
             <table class="job-table box-table">
-              <thead><tr><th>位号</th><th>规格</th><th>封装</th><th>位置</th><th>数量档</th></tr></thead>
+              <thead><tr><th>位号</th><th>规格</th><th>封装</th><th>耐压</th><th>位置</th><th>数量档</th></tr></thead>
               <tbody>
                 <tr v-for="(row, i) in group[1]" :key="'b' + group[0] + i">
                   <td class="designators"><Designators :text="row.line.designators" /></td>
                   <td>{{ row.line.name }}</td>
                   <td>{{ row.line.footprint }}</td>
+                  <td class="voltage" :title="row.bom_voltage || row.part_voltage ? 'BOM 电压 → 库存耐压' : ''">
+                    <template v-if="row.bom_voltage || row.part_voltage">
+                      {{ row.bom_voltage || "—" }} → {{ row.part_voltage || "未标" }}
+                    </template>
+                  </td>
                   <td class="loc">{{ row.location }}</td>
                   <td>{{ row.qty }}</td>
                 </tr>

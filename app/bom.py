@@ -387,12 +387,20 @@ def _cap_values(text: str) -> set[str]:
     }
 
 
+_VOLT_RE = re.compile(r"(?<![a-z0-9.])(\d+(?:\.\d+)?)\s*v(?:dc|ac)?(?![a-z0-9])")
+
+
 def _volt_values(text: str) -> set[str]:
-    return {
-        match.group(1)
-        for piece in _pieces(text)
-        if (match := re.fullmatch(r"(\d+\.?\d*)v", piece))
-    }
+    return {match.group(1) for match in _VOLT_RE.finditer(_loose_text(text))}
+
+
+def _max_volt(text: str) -> float | None:
+    return max((float(value) for value in _volt_values(text)), default=None)
+
+
+def voltage_label(text: str) -> str:
+    value = _max_volt(text)
+    return "" if value is None else f"{value:g}V"
 
 
 def _package_codes(text: str) -> set[str]:
@@ -465,7 +473,7 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
     if bool(bom_res) == bool(bom_caps):
         return []
     kind = "cap" if bom_caps else "res"
-    bom_volts = _volt_values(line.name)
+    bom_required = _max_volt(line.name)
     bom_precise = bom_is_precision(line)
     pkg = short if re.fullmatch(r"\d{4}", short or "") else ""
     strong: list[Part] = []
@@ -486,8 +494,8 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
         else:
             if not (_cap_values(text) & bom_caps):
                 continue
-            volts = _volt_values(text)
-            if bom_volts and volts and not (bom_volts & volts):
+            rated = _max_volt(text)
+            if bom_required is not None and rated is not None and rated < bom_required:
                 continue
         pkgs = _package_codes(text)
         if pkg and pkgs and pkg not in pkgs:
@@ -497,12 +505,23 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
         else:
             weak.append(part)
     chosen = strong or weak
-    if kind == "cap" and not bom_volts and len(chosen) > 1:
-        signatures = {
-            frozenset(_volt_values(f"{part.name} {part.aliases}")) for part in chosen
-        }
-        if len(signatures) > 1:
-            return []
+    if kind == "cap":
+        if bom_required is not None and chosen:
+            rated = [
+                (_max_volt(f"{part.name} {part.aliases}"), part) for part in chosen
+            ]
+            known = [(value, part) for value, part in rated if value is not None]
+            if known:
+                closest = min(value for value, _ in known)
+                best = [part for value, part in known if value == closest]
+                return best if len(best) == 1 else []
+            return chosen if len(chosen) == 1 else []
+        if bom_required is None and len(chosen) > 1:
+            signatures = {
+                frozenset(_volt_values(f"{part.name} {part.aliases}")) for part in chosen
+            }
+            if len(signatures) > 1:
+                return []
     if len(chosen) == 1:
         return chosen
     return []

@@ -453,43 +453,56 @@ table {
 }
 
 .polar-table th:nth-child(1) {
-  width: 18%;
+  width: 16%;
 }
 
 .polar-table th:nth-child(2) {
-  width: 13%;
+  width: 11%;
 }
 
 .polar-table th:nth-child(3) {
-  width: 27%;
+  width: 24%;
 }
 
 .polar-table th:nth-child(4) {
-  width: 13%;
+  width: 11%;
 }
 
 .polar-table th:nth-child(5) {
-  width: 29%;
+  width: 12%;
+}
+
+.polar-table th:nth-child(6) {
+  width: 26%;
 }
 
 .box-table th:nth-child(1) {
-  width: 30%;
+  width: 24%;
 }
 
 .box-table th:nth-child(2) {
-  width: 13%;
+  width: 12%;
 }
 
 .box-table th:nth-child(3) {
-  width: 30%;
+  width: 26%;
 }
 
 .box-table th:nth-child(4) {
-  width: 15%;
+  width: 12%;
 }
 
 .box-table th:nth-child(5) {
-  width: 12%;
+  width: 15%;
+}
+
+.box-table th:nth-child(6) {
+  width: 11%;
+}
+
+.voltage {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .unreg-table th:nth-child(1) {

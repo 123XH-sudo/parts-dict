@@ -14,7 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.backup import dump_backup
 from app.jsonutil import csrf_from_request, fail
-from app.bom import BomError, ParsedLine, match_part, parse_bom
+from app.bom import BomError, ParsedLine, match_part, parse_bom, voltage_label
 from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
     box_count,
@@ -846,6 +846,8 @@ def create_app() -> FastAPI:
                 "line": public_line(line),
                 "location": location_text(part.box, part.slot) if part else "",
                 "qty": qty_text(part) if part else "",
+                "bom_voltage": voltage_label(line.name),
+                "part_voltage": voltage_label(f"{part.name} {part.aliases}") if part else "",
             }
 
         polar = [pack(line) for line in lines if line.polarized_hint and not line.skip_bin]

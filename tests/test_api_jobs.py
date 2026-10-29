@@ -153,3 +153,36 @@ def test_precision_resistor_keeps_its_own_slot_after_reload(client):
         }
         assert locations["R1,R2"] == "1号盒第1格"
         assert locations["R10,R11"] == "2号盒第2格"
+
+
+def test_capacitor_voltage_is_matched_and_shown(client):
+    api_login(client)
+    for name, aliases, box, slot in (
+        ("22uF 6.3V 0603", "22uF 6.3V 0603", 1, 1),
+        ("22uF 50V 0603", "22uF 50V 0603", 2, 2),
+    ):
+        response = client.post(
+            "/api/parts",
+            json={
+                "name": name,
+                "aliases": aliases,
+                "box": box,
+                "slot": slot,
+                "qty_kind": "few",
+            },
+            headers=_headers(client),
+        )
+        assert response.status_code in (200, 201), response.text
+    bom = b"Comment,Designator,Footprint\n22uF 25V,C1,C0603\n"
+    created = client.post(
+        "/api/jobs",
+        data={"title": "电容耐压", "csrf_token": api_csrf(client)},
+        files={"file": ("bom.csv", bom, "text/csv")},
+    )
+    assert created.status_code == 201
+    page = client.get(f"/api/jobs/{created.json()['id']}").json()
+    rows = [row for _, group in page["box_groups"] for row in group]
+    assert len(rows) == 1
+    assert rows[0]["location"] == "2号盒第2格"
+    assert rows[0]["bom_voltage"] == "25V"
+    assert rows[0]["part_voltage"] == "50V"
