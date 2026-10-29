@@ -7,7 +7,7 @@
     <form @submit.prevent="upload">
       <label for="title">短名称</label>
       <input id="title" v-model="title" placeholder="无刷驱动 PCB1">
-      <label for="file">xlsx 或 csv</label>
+      <label for="file">xlsx 或 csv（立创EDA 导出或下单用的 BOM 都行）</label>
       <input id="file" type="file" accept=".xlsx,.csv" @change="onFile">
       <button type="submit" :disabled="busy">{{ busy ? "生成中…" : "生成清单" }}</button>
     </form>
@@ -55,7 +55,7 @@ async function upload() {
   if (busy.value) return;
   error.value = "";
   if (!file.value) {
-    error.value = "请用嘉立创导出的 BOM";
+    error.value = "先选一份嘉立创导出的 BOM（xlsx 或 csv）";
     return;
   }
   busy.value = true;

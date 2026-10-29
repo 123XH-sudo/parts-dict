@@ -16,7 +16,67 @@ class BomError(ValueError):
 
 
 MAX_BYTES = 2 * 1024 * 1024
-REQUIRED_HEADERS = ("Designator", "Name", "Footprint")
+REQUIRED_FIELDS = ("designator", "name", "footprint")
+HEADER_SCAN_ROWS = 10
+
+# 立创EDA 导出的是 Name，嘉立创下单/贴片用的 BOM 是 Comment。
+HEADER_ALIASES = {
+    "designator": (
+        "designator",
+        "designators",
+        "reference",
+        "references",
+        "refdes",
+        "part reference",
+        "位号",
+        "标号",
+        "元件标号",
+        "器件标号",
+        "器件位号",
+        "元件位号",
+    ),
+    "name": (
+        "name",
+        "comment",
+        "value",
+        "device",
+        "规格",
+        "规格型号",
+        "型号",
+        "名称",
+        "器件名称",
+        "值",
+    ),
+    "footprint": ("footprint", "package", "封装", "封装形式", "器件封装"),
+    "supplier": (
+        "supplier",
+        "supplier part",
+        "supplier part #",
+        "supplier part number",
+        "lcsc",
+        "lcsc part",
+        "lcsc part #",
+        "lcsc part number",
+        "lcsc part no",
+        "供应商编号",
+        "供应商料号",
+        "立创编号",
+        "嘉立创编号",
+        "商品编号",
+    ),
+    "quantity": ("quantity", "qty", "数量"),
+}
+
+
+def _header_key(cell: object) -> str:
+    text = str(cell).strip().lstrip("\ufeff").lower() if cell is not None else ""
+    return re.sub(r"[\s_:：]+", "", text).replace("＃", "#")
+
+
+_ALIAS_KEYS = {
+    field: frozenset(_header_key(alias) for alias in aliases)
+    for field, aliases in HEADER_ALIASES.items()
+}
 
 SKIP_POLAR_TOKENS = ("test-point", "testpoint", "铜条", "wafer", "conn", "db2erc")
 SKIP_PREFIXES = {"R", "C", "L", "TP", "CN", "SW", "X", "NTC"}
@@ -78,7 +138,7 @@ def lcsc_code(supplier: str) -> str:
 
 def designator_prefixes(designators: str) -> list[str]:
     prefixes = []
-    for item in designators.split(","):
+    for item in re.split(r"[,，;；\s]+", designators.strip()):
         text = item.strip().upper()
         matched = re.match(r"^([A-Z]+)", text)
         if matched:
@@ -131,12 +191,19 @@ def polarity_warning(designators: str, name: str, footprint: str) -> str:
     return "别贴反：1 脚对丝印圆点或缺口。"
 
 
-def _header_map(header: list[str]) -> dict[str, int]:
-    mapping = {cell.strip(): index for index, cell in enumerate(header) if cell and str(cell).strip()}
-    missing = [name for name in REQUIRED_HEADERS if name not in mapping]
-    if missing:
-        raise BomError("请用嘉立创导出的 BOM")
-    return mapping
+def _header_map(header: tuple | list) -> dict[str, list[int]] | None:
+    found: dict[str, list[int]] = {}
+    for index, cell in enumerate(header):
+        key = _header_key(cell)
+        if not key:
+            continue
+        for field, keys in _ALIAS_KEYS.items():
+            if key in keys:
+                found.setdefault(field, []).append(index)
+                break
+    if all(field in found for field in REQUIRED_FIELDS):
+        return found
+    return None
 
 
 def _cell(row: tuple, index: int | None) -> str:
@@ -148,24 +215,50 @@ def _cell(row: tuple, index: int | None) -> str:
     return str(value).strip()
 
 
-def _as_lines(header: list[str], body: list[tuple]) -> list[ParsedLine]:
-    mapping = _header_map(header)
-    supplier_i = mapping.get("Supplier")
-    qty_i = mapping.get("Quantity")
+def _supplier_cell(row: tuple, indices: list[int]) -> str:
+    values = [value for value in (_cell(row, index) for index in indices) if value]
+    for value in values:
+        if lcsc_code(value):
+            return value
+    return values[0] if values else ""
+
+
+def _designator_count(designators: str) -> int:
+    items = [item for item in re.split(r"[,，;；\s]+", designators.strip()) if item]
+    return len(items) or 1
+
+
+def _header_error(rows: list[tuple]) -> BomError:
+    header = next((row for row in rows if row and any(str(cell).strip() for cell in row if cell is not None)), ())
+    shown = "、".join(str(cell).strip() for cell in header if cell is not None and str(cell).strip())
+    message = "没认出 BOM 表头：需要位号（Designator）、规格（Name 或 Comment）、封装（Footprint）三列。"
+    if shown:
+        message += f"这个文件的表头是：{shown}。"
+    return BomError(message)
+
+
+def _as_lines(mapping: dict[str, list[int]], body: list[tuple]) -> list[ParsedLine]:
+    designator_i = mapping["designator"][0]
+    name_i = mapping["name"][0]
+    footprint_i = mapping["footprint"][0]
+    supplier_is = mapping.get("supplier", [])
+    qty_i = mapping.get("quantity", [None])[0]
     lines: list[ParsedLine] = []
     for row in body:
         if not row or all(cell is None or str(cell).strip() == "" for cell in row):
             continue
-        designators = _cell(row, mapping["Designator"])
-        name = _cell(row, mapping["Name"])
-        footprint = _cell(row, mapping["Footprint"])
+        designators = _cell(row, designator_i)
+        name = _cell(row, name_i)
+        footprint = _cell(row, footprint_i)
         if not designators or not name:
             continue
-        qty_raw = _cell(row, qty_i) if qty_i is not None else "1"
-        try:
-            quantity = int(float(qty_raw)) if qty_raw else 1
-        except ValueError:
-            quantity = 1
+        quantity = _designator_count(designators)
+        if qty_i is not None:
+            qty_raw = _cell(row, qty_i)
+            try:
+                quantity = int(float(qty_raw)) if qty_raw else quantity
+            except ValueError:
+                pass
         skip = is_skip_bin(name, footprint)
         polar = False if skip else polarized_hint(designators, name, footprint)
         lines.append(
@@ -173,7 +266,7 @@ def _as_lines(header: list[str], body: list[tuple]) -> list[ParsedLine]:
                 designators=designators,
                 name=name,
                 footprint=footprint,
-                supplier=_cell(row, supplier_i) if supplier_i is not None else "",
+                supplier=_supplier_cell(row, supplier_is),
                 quantity=quantity,
                 skip_bin=skip,
                 polarized_hint=polar,
@@ -181,8 +274,16 @@ def _as_lines(header: list[str], body: list[tuple]) -> list[ParsedLine]:
             )
         )
     if not lines:
-        raise BomError("请用嘉立创导出的 BOM")
+        raise BomError("这个 BOM 里没有可用的料，请确认表头和内容后再导出一次。")
     return lines
+
+
+def _split_rows(rows: list[tuple]) -> list[ParsedLine]:
+    for index, row in enumerate(rows[:HEADER_SCAN_ROWS]):
+        mapping = _header_map(row)
+        if mapping is not None:
+            return _as_lines(mapping, rows[index + 1 :])
+    raise _header_error(rows)
 
 
 def parse_bom(content: bytes, filename: str) -> list[ParsedLine]:
@@ -191,23 +292,26 @@ def parse_bom(content: bytes, filename: str) -> list[ParsedLine]:
     lower = filename.lower()
     if lower.endswith(".csv"):
         text = content.decode("utf-8-sig", errors="replace")
-        reader = csv.reader(io.StringIO(text))
-        rows = [tuple(item.strip() for item in row) for row in reader]
+        rows = [tuple(item.strip() for item in row) for row in csv.reader(io.StringIO(text))]
         if not rows:
-            raise BomError("请用嘉立创导出的 BOM")
-        return _as_lines([str(item) for item in rows[0]], rows[1:])
+            raise BomError("这个文件是空的，请用嘉立创导出的 BOM。")
+        return _split_rows(rows)
     if not lower.endswith(".xlsx"):
-        raise BomError("请用嘉立创导出的 BOM")
+        raise BomError("只支持嘉立创导出的 xlsx 或 csv BOM，请重新导出后再上传。")
     try:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001
-        raise BomError("请用嘉立创导出的 BOM") from exc
-    sheet = workbook[workbook.sheetnames[0]]
-    rows = list(sheet.iter_rows(values_only=True))
-    if not rows:
-        raise BomError("请用嘉立创导出的 BOM")
-    header = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
-    return _as_lines(header, rows[1:])
+        raise BomError("这个 xlsx 打不开，请重新从嘉立创导出 BOM。") from exc
+    first_error: BomError | None = None
+    for name in workbook.sheetnames:
+        rows = list(workbook[name].iter_rows(values_only=True))
+        if not rows:
+            continue
+        try:
+            return _split_rows(rows)
+        except BomError as exc:
+            first_error = first_error or exc
+    raise first_error or BomError("这个文件里没有表，请用嘉立创导出的 BOM。")
 
 
 _PKG_CODES = ("0201", "0402", "0603", "0805", "1206", "1210", "1812", "2010", "2512", "0602", "0508")
