@@ -424,23 +424,23 @@ _PRECISION_MPN_RE = re.compile(
 )
 
 
-def _is_precision(text: str) -> bool:
+def precision_label(text: str) -> str:
     if "高精" in text or "精密" in text:
-        return True
+        return "高精"
     tolerance = _tolerance_percent(text)
     if tolerance is not None and tolerance <= 0.5:
-        return True
-    return any(_PRECISION_MPN_RE.match(piece) for piece in _pieces(text))
+        return f"{tolerance:g}%"
+    if any(_PRECISION_MPN_RE.match(piece) for piece in _pieces(text)):
+        return "0.1%"
+    return ""
+
+
+def _is_precision(text: str) -> bool:
+    return bool(precision_label(text))
 
 
 def bom_is_precision(line: ParsedLine) -> bool:
-    text = f"{line.name} {line.mpn}"
-    if "高精" in text or "精密" in text:
-        return True
-    tolerance = _tolerance_percent(text)
-    if tolerance is not None and tolerance <= 0.5:
-        return True
-    return any(_PRECISION_MPN_RE.match(piece) for piece in _pieces(text))
+    return bool(precision_label(f"{line.name} {line.mpn}"))
 
 
 def _packages_conflict(part: Part, short: str) -> bool:
@@ -482,8 +482,6 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
         if not part.active:
             continue
         text = f"{part.name} {part.aliases}"
-        if _is_precision(text) and not bom_precise:
-            continue
         if bom_precise and not _is_precision(text):
             continue
         if kind == "res":
@@ -505,6 +503,12 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
         else:
             weak.append(part)
     chosen = strong or weak
+    if not bom_precise and kind == "res" and chosen:
+        ordinary = [
+            part for part in chosen if not _is_precision(f"{part.name} {part.aliases}")
+        ]
+        if ordinary:
+            chosen = ordinary
     if kind == "cap":
         if bom_required is not None and chosen:
             rated = [
@@ -569,6 +573,7 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
     code = lcsc_code(line.supplier)
     precise = bom_is_precision(line)
     named: list[Part] = []
+    named_ok: list[Part] = []
     for part in parts:
         if not part.active:
             continue
@@ -580,7 +585,19 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
         if keys & variants:
             named.append(part)
             if _package_ok(part, short):
-                return part
+                named_ok.append(part)
+    pool = named_ok or named
+    if pool:
+        if precise:
+            if len(pool) == 1:
+                return pool[0]
+        else:
+            ordinary = [
+                part for part in pool if not _is_precision(f"{part.name} {part.aliases}")
+            ]
+            preferred = ordinary or pool
+            if len(preferred) == 1:
+                return preferred[0]
     if code:
         for part in parts:
             if not part.active:
@@ -589,8 +606,6 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
                 continue
             if code in _part_keys(part):
                 return part
-    if len(named) == 1:
-        return named[0]
     passive = _passive_hits(line, parts, short)
     if len(passive) == 1:
         return passive[0]

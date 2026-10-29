@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <form class="search" @submit.prevent>
+    <form class="search" @submit.prevent="searchNow($event)">
       <input
         v-model="q"
         type="search"
@@ -8,6 +8,7 @@
         autofocus
         @input="schedule"
       >
+      <button type="submit" class="search-btn">搜索</button>
     </form>
     <div v-if="searched && results.length" class="panel">
     <table>
@@ -17,7 +18,10 @@
       <tbody>
         <tr v-for="part in results" :key="part.id">
           <td>{{ part.aliases }}</td>
-          <td>{{ part.name }}</td>
+          <td>
+            {{ part.name }}
+            <span v-if="part.precision" class="badge">{{ part.precision }}</span>
+          </td>
           <td class="loc">{{ part.location }}</td>
           <td>{{ part.qty_label }}</td>
           <td><router-link :to="`/parts/${part.id}/edit`">改</router-link></td>
@@ -59,6 +63,7 @@ const summaries = ref([]);
 const searched = ref(false);
 const loading = ref(false);
 let timer = 0;
+let seq = 0;
 
 const cards = computed(() => {
   const count = session.user?.box_count || summaries.value.length || 12;
@@ -84,6 +89,7 @@ async function loadBoxes() {
 
 async function load() {
   const query = q.value.trim();
+  const mine = ++seq;
   loading.value = Boolean(query);
   if (!query) {
     searched.value = false;
@@ -94,22 +100,28 @@ async function load() {
   }
   const res = await request("GET", `/api/parts?q=${encodeURIComponent(query)}`);
   const data = await readJson(res);
+  if (mine !== seq) return;
   results.value = data.results || [];
   searched.value = true;
   loading.value = false;
 }
 
+function searchNow(event) {
+  clearTimeout(timer);
+  const typed = event?.target?.querySelector?.('input[type="search"]')?.value;
+  if (typeof typed === "string") q.value = typed;
+  const query = q.value.trim();
+  const current = String(route.query.q || "");
+  if (current !== query) {
+    router.replace({ path: "/", query: query ? { q: query } : {} });
+  } else {
+    load();
+  }
+}
+
 function schedule() {
   clearTimeout(timer);
-  timer = setTimeout(() => {
-    const query = q.value.trim();
-    const current = String(route.query.q || "");
-    if (current !== query) {
-      router.replace({ path: "/", query: query ? { q: query } : {} });
-    } else {
-      load();
-    }
-  }, 300);
+  timer = setTimeout(searchNow, 300);
 }
 
 function goBox(n) {

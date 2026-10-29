@@ -255,3 +255,30 @@ def test_update_qty_without_name_change_is_ok(client):
     )
     assert updated.status_code == 200
     assert updated.json()["id"] == part_id
+
+
+def test_search_keeps_similar_values_apart(client):
+    api_login(client)
+    for slot, (name, aliases) in enumerate(
+        [
+            ("4.7K 电阻0603", "4.7K 0603"),
+            ("47K 电阻0603", "47K 0603"),
+            ("100K 电阻0603", "100K 0603"),
+            ("10K 电阻0603", "10K 0603"),
+            ("10K1N NTC0603", "10K1N 0603"),
+        ],
+        start=1,
+    ):
+        created = _create(client, name=name, aliases=aliases, box=1, slot=slot)
+        assert created.status_code == 201, created.text
+
+    def aliases_for(query):
+        results = client.get("/api/parts", params={"q": query}).json()["results"]
+        return [row["aliases"] for row in results]
+
+    assert aliases_for("4.7K") == ["4.7K 0603"]
+    assert aliases_for("47K") == ["47K 0603"]
+    assert aliases_for("10K") == ["10K 0603"]
+    assert aliases_for("100K") == ["100K 0603"]
+    assert aliases_for("10K 0603") == ["10K 0603"]
+    assert aliases_for("0603") and "47K 0603" in aliases_for("0603")

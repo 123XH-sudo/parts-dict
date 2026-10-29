@@ -96,6 +96,7 @@ class JobLine(Base):
     mpn: Mapped[str] = mapped_column(String(200), default="", nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     part_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    manual_part: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     skip_bin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     polarized_hint: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     warning: Mapped[str] = mapped_column(String(200), default="", nullable=False)

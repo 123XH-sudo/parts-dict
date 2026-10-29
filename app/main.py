@@ -14,7 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.backup import dump_backup
 from app.jsonutil import csrf_from_request, fail
-from app.bom import BomError, ParsedLine, match_part, parse_bom, voltage_label
+from app.bom import BomError, ParsedLine, match_part, parse_bom, precision_label, voltage_label
 from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
     box_count,
@@ -85,6 +85,10 @@ class BoxLayoutBody(BaseModel):
     rows: int | str = ""
 
 
+class JobLinePartBody(BaseModel):
+    part_id: int | None = None
+
+
 def qty_text(part: Part) -> str:
     if part.qty_kind == "exact":
         return str(part.qty_count)
@@ -103,6 +107,7 @@ def part_result(part: Part) -> dict:
         "qty_count": part.qty_count,
         "qty_label": qty_text(part),
         "polarized": part.polarized,
+        "precision": precision_label(f"{part.name} {part.aliases}"),
         "note": part.note,
         "active": part.active,
     }
@@ -802,6 +807,8 @@ def create_app() -> FastAPI:
         )
         changed = False
         for line in lines:
+            if line.manual_part:
+                continue
             parsed = ParsedLine(
                 designators=line.designators,
                 name=line.name,
@@ -834,10 +841,14 @@ def create_app() -> FastAPI:
 
         def public_line(line: JobLine) -> dict:
             return {
+                "id": line.id,
                 "designators": line.designators,
                 "name": line.name,
                 "footprint": line.footprint,
                 "warning": line.warning,
+                "part_id": line.part_id,
+                "manual": line.manual_part,
+                "line_precision": precision_label(f"{line.name} {line.mpn}"),
             }
 
         def pack(line: JobLine) -> dict:
@@ -848,6 +859,9 @@ def create_app() -> FastAPI:
                 "qty": qty_text(part) if part else "",
                 "bom_voltage": voltage_label(line.name),
                 "part_voltage": voltage_label(f"{part.name} {part.aliases}") if part else "",
+                "part_precision": (
+                    precision_label(f"{part.name} {part.aliases}") if part else ""
+                ),
             }
 
         polar = [pack(line) for line in lines if line.polarized_hint and not line.skip_bin]
@@ -918,6 +932,42 @@ def create_app() -> FastAPI:
             if job is None:
                 return fail(404, "没有这块板。")
             return job_json(session, job)
+
+    @app.post("/api/jobs/{job_id}/lines/{line_id}/part")
+    def api_link_job_line(
+        request: Request, job_id: int, line_id: int, body: JobLinePartBody
+    ):
+        gate = api_login_required(request)
+        if gate:
+            return gate
+        if not check_csrf(request):
+            return fail(400, "提交已过期，请再保存一次。")
+        with db() as session:
+            job = session.get(Job, job_id)
+            line = session.get(JobLine, line_id)
+            if job is None or line is None or line.job_id != job.id:
+                return fail(404, "没有这条贴片记录。")
+            part = None
+            if body.part_id is not None:
+                part = session.get(Part, body.part_id)
+                if part is None or not part.active:
+                    return fail(400, "这颗料不存在或已停用。")
+            before = line.part_id
+            line.part_id = part.id if part else None
+            line.manual_part = part is not None
+            user_id, who = actor(request)
+            target = location_text(part.box, part.slot) if part else "恢复自动匹配"
+            write_event(
+                session,
+                user_id=user_id,
+                username=who,
+                action="job.relink",
+                summary=f"{line.designators} → {target}",
+                before={"part_id": before},
+                after={"part_id": line.part_id},
+            )
+            session.commit()
+            return {"part_id": line.part_id, "manual": line.manual_part}
 
     assets = SPA_DIR / "assets"
     if assets.is_dir():

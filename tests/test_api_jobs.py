@@ -186,3 +186,56 @@ def test_capacitor_voltage_is_matched_and_shown(client):
     assert rows[0]["location"] == "2号盒第2格"
     assert rows[0]["bom_voltage"] == "25V"
     assert rows[0]["part_voltage"] == "50V"
+
+
+def test_manual_relink_survives_rematch(client):
+    api_login(client)
+    for name, aliases, box, slot in (
+        ("22uF 25V 0603", "22uF 25V 0603", 1, 1),
+        ("22uF 50V 0603", "22uF 50V 0603", 2, 2),
+    ):
+        client.post(
+            "/api/parts",
+            json={
+                "name": name,
+                "aliases": aliases,
+                "box": box,
+                "slot": slot,
+                "qty_kind": "few",
+            },
+            headers=_headers(client),
+        )
+    bom = b"Comment,Designator,Footprint\n22uF 25V,C1,C0603\n"
+    job_id = client.post(
+        "/api/jobs",
+        data={"title": "手动改位置", "csrf_token": api_csrf(client)},
+        files={"file": ("bom.csv", bom, "text/csv")},
+    ).json()["id"]
+    page = client.get(f"/api/jobs/{job_id}").json()
+    row = [row for _, rows in page["box_groups"] for row in rows][0]
+    assert row["location"] == "1号盒第1格"
+    line_id = row["line"]["id"]
+    other = client.get("/api/parts", params={"q": "22uF 50V"}).json()["results"][0]
+
+    linked = client.post(
+        f"/api/jobs/{job_id}/lines/{line_id}/part",
+        json={"part_id": other["id"]},
+        headers=_headers(client),
+    )
+    assert linked.status_code == 200
+    for _ in range(2):
+        page = client.get(f"/api/jobs/{job_id}").json()
+        row = [row for _, rows in page["box_groups"] for row in rows][0]
+        assert row["location"] == "2号盒第2格"
+        assert row["line"]["manual"] is True
+
+    cleared = client.post(
+        f"/api/jobs/{job_id}/lines/{line_id}/part",
+        json={"part_id": None},
+        headers=_headers(client),
+    )
+    assert cleared.status_code == 200
+    page = client.get(f"/api/jobs/{job_id}").json()
+    row = [row for _, rows in page["box_groups"] for row in rows][0]
+    assert row["location"] == "1号盒第1格"
+    assert row["line"]["manual"] is False

@@ -43,14 +43,19 @@ def make_session_factory(engine):
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+JOB_LINE_COLUMNS = {
+    "mpn": "VARCHAR(200) NOT NULL DEFAULT ''",
+    "manual_part": "BOOLEAN NOT NULL DEFAULT 0",
+}
+
+
 def ensure_columns(engine) -> None:
     """给旧库补上后来新增的列，create_all 不会改已有表。"""
     inspector = inspect(engine)
     if "job_lines" not in inspector.get_table_names():
         return
     existing = {column["name"] for column in inspector.get_columns("job_lines")}
-    if "mpn" not in existing:
-        with engine.begin() as connection:
-            connection.execute(
-                text("ALTER TABLE job_lines ADD COLUMN mpn VARCHAR(200) NOT NULL DEFAULT ''")
-            )
+    with engine.begin() as connection:
+        for name, ddl in JOB_LINE_COLUMNS.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE job_lines ADD COLUMN {name} {ddl}"))

@@ -33,6 +33,7 @@
       >
         <span class="slot-num">{{ index + 1 }}</span>
         <span v-if="part" class="slot-name">{{ part.aliases }}</span>
+        <span v-if="part && part.precision" class="slot-precision">{{ part.precision }}</span>
       </button>
     </div>
     <p v-else class="empty panel">加载中…</p>
