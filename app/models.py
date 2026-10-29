@@ -93,6 +93,7 @@ class JobLine(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     footprint: Mapped[str] = mapped_column(String(200), nullable=False)
     supplier: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    mpn: Mapped[str] = mapped_column(String(200), default="", nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     part_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     skip_bin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

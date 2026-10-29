@@ -20,7 +20,9 @@ def _part(name: str, aliases: str, box: int = 1, slot: int = 1) -> Part:
     )
 
 
-def _line(name: str, footprint: str = "R0603", supplier: str = "") -> ParsedLine:
+def _line(
+    name: str, footprint: str = "R0603", supplier: str = "", mpn: str = ""
+) -> ParsedLine:
     return ParsedLine(
         designators="R1",
         name=name,
@@ -30,6 +32,7 @@ def _line(name: str, footprint: str = "R0603", supplier: str = "") -> ParsedLine
         skip_bin=False,
         polarized_hint=False,
         warning="",
+        mpn=mpn,
     )
 
 
@@ -80,3 +83,17 @@ def test_model_token_ignores_extra_words_and_ordering_suffix():
 def test_exact_alias_does_not_cross_package():
     big = _part("10KR电阻0805", "10K")
     assert match_part(_line("10K", "R0603"), [big]) is None
+
+
+def test_precision_mpn_selects_precision_part():
+    ordinary = _part("4.7KR电阻0603", "4.7K 0603")
+    precision = _part("4.7K 0.1% 0603", "4.7K 0.1% 0603", slot=2)
+    parts = [ordinary, precision]
+    assert match_part(_line("4.7kΩ", mpn="0603WAF4701T5E"), parts) is ordinary
+    assert match_part(_line("4.7kΩ", mpn="RT0603BRD074K7L"), parts) is precision
+    assert match_part(_line("4.7kΩ", mpn="PTFR0603B4K70P9"), parts) is precision
+
+
+def test_precision_mpn_without_precision_stock_stays_unmatched():
+    ordinary = _part("4.7KR电阻0603", "4.7K 0603")
+    assert match_part(_line("4.7kΩ", mpn="RT0603BRD074K7L"), [ordinary]) is None

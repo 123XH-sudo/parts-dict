@@ -93,3 +93,15 @@ def test_old_excel_format_is_rejected_clearly():
         parse_bom(b"whatever", "bom.xls")
 
     assert "xlsx" in str(excinfo.value)
+
+
+def test_manufacturer_part_column_is_kept_for_matching():
+    content = (
+        "Comment,Designator,Footprint,Manufacturer Part,Supplier Part\r\n"
+        "4.7kΩ,C1,C0603,RT0603BRD074K7L,C513565\r\n"
+    ).encode("utf-8")
+
+    lines = parse_bom(content, "bom.csv")
+
+    assert lines[0].mpn == "RT0603BRD074K7L"
+    assert lines[0].supplier == "C513565"

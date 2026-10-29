@@ -84,6 +84,7 @@ def dump_backup(session) -> dict:
                 "name": line.name,
                 "footprint": line.footprint,
                 "supplier": line.supplier,
+                "mpn": line.mpn,
                 "quantity": line.quantity,
                 "part_id": line.part_id,
                 "skip_bin": line.skip_bin,

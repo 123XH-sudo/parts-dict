@@ -28,7 +28,7 @@ from app.auth import (
     valid_username,
     verify_password,
 )
-from app.db import Base, make_engine, make_session_factory
+from app.db import Base, ensure_columns, make_engine, make_session_factory
 from app.models import AuditLog, Job, JobLine, Part, Setting, User
 from app.search import (
     QTY_LABEL,
@@ -115,6 +115,7 @@ def create_app() -> FastAPI:
 
     engine = make_engine()
     Base.metadata.create_all(engine)
+    ensure_columns(engine)
     SessionLocal = make_session_factory(engine)
     with SessionLocal() as session:
         seed_admin(session)
@@ -771,6 +772,7 @@ def create_app() -> FastAPI:
                     name=line.name,
                     footprint=line.footprint,
                     supplier=line.supplier,
+                    mpn=line.mpn,
                     quantity=line.quantity,
                     part_id=part.id if part else None,
                     skip_bin=line.skip_bin,
@@ -805,6 +807,7 @@ def create_app() -> FastAPI:
                 name=line.name,
                 footprint=line.footprint,
                 supplier=line.supplier,
+                mpn=line.mpn,
                 quantity=line.quantity,
                 skip_bin=line.skip_bin,
                 polarized_hint=line.polarized_hint,

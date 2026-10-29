@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -41,3 +41,16 @@ def make_engine(url: str | None = None):
 
 def make_session_factory(engine):
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def ensure_columns(engine) -> None:
+    """给旧库补上后来新增的列，create_all 不会改已有表。"""
+    inspector = inspect(engine)
+    if "job_lines" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("job_lines")}
+    if "mpn" not in existing:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE job_lines ADD COLUMN mpn VARCHAR(200) NOT NULL DEFAULT ''")
+            )

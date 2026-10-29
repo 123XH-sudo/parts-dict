@@ -112,3 +112,44 @@ def test_10k_does_not_match_10k1n(client):
     names += [row["line"]["name"] + row["line"]["designators"] for row in page["polar"]]
     names += [line["name"] + line["designators"] for line in page["unreg"] + page["skip"]]
     assert any("NTC1" in name for name in names)
+
+
+def test_precision_resistor_keeps_its_own_slot_after_reload(client):
+    api_login(client)
+    for name, aliases, box, slot in (
+        ("0603 4.7K 电阻", "4.7K 0603", 1, 1),
+        ("4.7K 0.1% 0603", "4.7K 0.1% 0603", 2, 2),
+    ):
+        client.post(
+            "/api/parts",
+            json={
+                "name": name,
+                "aliases": aliases,
+                "box": box,
+                "slot": slot,
+                "qty_kind": "few",
+            },
+            headers=_headers(client),
+        )
+    bom = (
+        "Comment,Designator,Footprint,Manufacturer Part,Supplier Part\n"
+        '4.7kΩ,"R1,R2",R0603,0603WAF4701T5E,C23162\n'
+        '4.7kΩ,"R10,R11",R0603,RT0603BRD074K7L,C513565\n'
+    ).encode("utf-8")
+    created = client.post(
+        "/api/jobs",
+        data={"title": "高精电阻", "csrf_token": api_csrf(client)},
+        files={"file": ("bom.csv", bom, "text/csv")},
+    )
+    assert created.status_code == 201
+    job_id = created.json()["id"]
+
+    for _ in range(2):
+        page = client.get(f"/api/jobs/{job_id}").json()
+        locations = {
+            row["line"]["designators"]: row["location"]
+            for _, rows in page["box_groups"]
+            for row in rows
+        }
+        assert locations["R1,R2"] == "1号盒第1格"
+        assert locations["R10,R11"] == "2号盒第2格"

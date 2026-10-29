@@ -65,6 +65,16 @@ HEADER_ALIASES = {
         "商品编号",
     ),
     "quantity": ("quantity", "qty", "数量"),
+    "mpn": (
+        "manufacturer part",
+        "manufacturer part #",
+        "manufacturer part number",
+        "manufacturer p/n",
+        "mpn",
+        "厂商型号",
+        "厂家型号",
+        "制造商型号",
+    ),
 }
 
 
@@ -106,6 +116,7 @@ class ParsedLine:
     skip_bin: bool
     polarized_hint: bool
     warning: str
+    mpn: str = ""
 
 
 def name_variants(name: str) -> set[str]:
@@ -215,6 +226,14 @@ def _cell(row: tuple, index: int | None) -> str:
     return str(value).strip()
 
 
+def _first_cell(row: tuple, indices: list[int]) -> str:
+    for index in indices:
+        value = _cell(row, index)
+        if value:
+            return value
+    return ""
+
+
 def _supplier_cell(row: tuple, indices: list[int]) -> str:
     values = [value for value in (_cell(row, index) for index in indices) if value]
     for value in values:
@@ -242,6 +261,7 @@ def _as_lines(mapping: dict[str, list[int]], body: list[tuple]) -> list[ParsedLi
     name_i = mapping["name"][0]
     footprint_i = mapping["footprint"][0]
     supplier_is = mapping.get("supplier", [])
+    mpn_is = mapping.get("mpn", [])
     qty_i = mapping.get("quantity", [None])[0]
     lines: list[ParsedLine] = []
     for row in body:
@@ -271,6 +291,7 @@ def _as_lines(mapping: dict[str, list[int]], body: list[tuple]) -> list[ParsedLi
                 skip_bin=skip,
                 polarized_hint=polar,
                 warning=polarity_warning(designators, name, footprint) if polar else "",
+                mpn=_first_cell(row, mpn_is),
             )
         )
     if not lines:
@@ -378,8 +399,40 @@ def _package_codes(text: str) -> set[str]:
     return set(_PKG_RE.findall(_loose_text(text)))
 
 
+def _tolerance_percent(text: str) -> float | None:
+    match = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
+    if match:
+        return float(match.group(1))
+    match = re.search(r"(\d+(?:\.\d+)?)\s*‰", text)
+    if match:
+        return float(match.group(1)) / 10
+    return None
+
+
+# 厂家型号里的精度位号：RT0603B…、PTFR0603B…、ERA…B… 等为 ±0.1%。
+_PRECISION_MPN_RE = re.compile(
+    r"^(?:RT\d{4}B|PTFR\d{4}B|ERA[0-9A-Z]{2,3}B|RG\d{4}[PB])",
+    re.I,
+)
+
+
 def _is_precision(text: str) -> bool:
-    return "0.1%" in text or "高精度" in text
+    if "高精" in text or "精密" in text:
+        return True
+    tolerance = _tolerance_percent(text)
+    if tolerance is not None and tolerance <= 0.5:
+        return True
+    return any(_PRECISION_MPN_RE.match(piece) for piece in _pieces(text))
+
+
+def bom_is_precision(line: ParsedLine) -> bool:
+    text = f"{line.name} {line.mpn}"
+    if "高精" in text or "精密" in text:
+        return True
+    tolerance = _tolerance_percent(text)
+    if tolerance is not None and tolerance <= 0.5:
+        return True
+    return any(_PRECISION_MPN_RE.match(piece) for piece in _pieces(text))
 
 
 def _packages_conflict(part: Part, short: str) -> bool:
@@ -413,7 +466,7 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
         return []
     kind = "cap" if bom_caps else "res"
     bom_volts = _volt_values(line.name)
-    bom_precise = _is_precision(line.name)
+    bom_precise = bom_is_precision(line)
     pkg = short if re.fullmatch(r"\d{4}", short or "") else ""
     strong: list[Part] = []
     weak: list[Part] = []
@@ -422,6 +475,8 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
             continue
         text = f"{part.name} {part.aliases}"
         if _is_precision(text) and not bom_precise:
+            continue
+        if bom_precise and not _is_precision(text):
             continue
         if kind == "res":
             if not (_res_values(text) & bom_res):
@@ -454,11 +509,14 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
 
 
 def _mpn_hits(line: ParsedLine, parts: list[Part]) -> list[Part]:
-    bom_tokens = _mpn_tokens(line.name)
+    bom_tokens = _mpn_tokens(f"{line.name} {line.mpn}")
     bom_whole = re.sub(r"\s+", "", _loose_text(line.name))
+    precise = bom_is_precision(line)
     hits: list[Part] = []
     for part in parts:
         if not part.active:
+            continue
+        if precise and not _is_precision(f"{part.name} {part.aliases}"):
             continue
         matched = False
         for token in _mpn_tokens(f"{part.name} {part.aliases}"):
@@ -486,11 +544,16 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
     if line.skip_bin:
         return None
     variants = name_variants(line.name)
+    if line.mpn:
+        variants.add(normalize(line.mpn))
     short = footprint_short(line.footprint)
     code = lcsc_code(line.supplier)
+    precise = bom_is_precision(line)
     named: list[Part] = []
     for part in parts:
         if not part.active:
+            continue
+        if precise and not _is_precision(f"{part.name} {part.aliases}"):
             continue
         if _packages_conflict(part, short):
             continue
@@ -502,6 +565,8 @@ def match_part(line: ParsedLine, parts: list[Part]) -> Part | None:
     if code:
         for part in parts:
             if not part.active:
+                continue
+            if precise and not _is_precision(f"{part.name} {part.aliases}"):
                 continue
             if code in _part_keys(part):
                 return part
