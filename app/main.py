@@ -14,7 +14,15 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.backup import dump_backup
 from app.jsonutil import csrf_from_request, fail
-from app.bom import BomError, ParsedLine, match_part, parse_bom, precision_label, voltage_label
+from app.bom import (
+    BomError,
+    ParsedLine,
+    is_capacitor,
+    match_part,
+    parse_bom,
+    precision_label,
+    voltage_label,
+)
 from app.audit import history_row, snapshot, write_audit, write_event
 from app.auth import (
     box_count,
@@ -853,12 +861,16 @@ def create_app() -> FastAPI:
 
         def pack(line: JobLine) -> dict:
             part = parts.get(line.part_id) if line.part_id else None
+            cap = is_capacitor(line.name)
             return {
                 "line": public_line(line),
                 "location": location_text(part.box, part.slot) if part else "",
                 "qty": qty_text(part) if part else "",
-                "bom_voltage": voltage_label(line.name),
-                "part_voltage": voltage_label(f"{part.name} {part.aliases}") if part else "",
+                "is_cap": cap,
+                "bom_voltage": voltage_label(line.name) if cap else "",
+                "part_voltage": (
+                    voltage_label(f"{part.name} {part.aliases}") if cap and part else ""
+                ),
                 "part_precision": (
                     precision_label(f"{part.name} {part.aliases}") if part else ""
                 ),

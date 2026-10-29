@@ -390,6 +390,10 @@ def _cap_values(text: str) -> set[str]:
 _VOLT_RE = re.compile(r"(?<![a-z0-9.])(\d+(?:\.\d+)?)\s*v(?:dc|ac)?(?![a-z0-9])")
 
 
+def is_capacitor(text: str) -> bool:
+    return bool(_cap_values(text))
+
+
 def _volt_values(text: str) -> set[str]:
     return {match.group(1) for match in _VOLT_RE.finditer(_loose_text(text))}
 
@@ -493,8 +497,9 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
             if not (_cap_values(text) & bom_caps):
                 continue
             rated = _max_volt(text)
-            if bom_required is not None and rated is not None and rated < bom_required:
-                continue
+            if bom_required is not None:
+                if rated is None or rated < bom_required:
+                    continue
         pkgs = _package_codes(text)
         if pkg and pkgs and pkg not in pkgs:
             continue
@@ -519,7 +524,7 @@ def _passive_hits(line: ParsedLine, parts: list[Part], short: str) -> list[Part]
                 closest = min(value for value, _ in known)
                 best = [part for value, part in known if value == closest]
                 return best if len(best) == 1 else []
-            return chosen if len(chosen) == 1 else []
+            return []
         if bom_required is None and len(chosen) > 1:
             signatures = {
                 frozenset(_volt_values(f"{part.name} {part.aliases}")) for part in chosen

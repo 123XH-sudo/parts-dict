@@ -18,9 +18,15 @@
                   <span v-if="row.part_precision" class="badge">{{ row.part_precision }}</span>
                 </td>
                 <td>{{ row.line.footprint }}</td>
-                <td class="voltage" :title="row.bom_voltage || row.part_voltage ? 'BOM 电压 → 库存耐压' : ''">
-                  <template v-if="row.bom_voltage || row.part_voltage">
-                    {{ row.bom_voltage || "—" }} → {{ row.part_voltage || "未标" }}
+                <td class="voltage" :title="row.is_cap ? 'BOM 电压 → 库存耐压' : ''">
+                  <template v-if="row.is_cap && row.bom_voltage && row.part_voltage">
+                    {{ row.bom_voltage }} → {{ row.part_voltage }}
+                  </template>
+                  <template v-else-if="row.is_cap && row.bom_voltage">
+                    {{ row.bom_voltage }} → 未标
+                  </template>
+                  <template v-else-if="row.is_cap && row.part_voltage">
+                    库存 {{ row.part_voltage }}
                   </template>
                 </td>
                 <td class="loc">
@@ -52,9 +58,15 @@
                     <span v-if="row.part_precision" class="badge">{{ row.part_precision }}</span>
                   </td>
                   <td>{{ row.line.footprint }}</td>
-                  <td class="voltage" :title="row.bom_voltage || row.part_voltage ? 'BOM 电压 → 库存耐压' : ''">
-                    <template v-if="row.bom_voltage || row.part_voltage">
-                      {{ row.bom_voltage || "—" }} → {{ row.part_voltage || "未标" }}
+                  <td class="voltage" :title="row.is_cap ? 'BOM 电压 → 库存耐压' : ''">
+                    <template v-if="row.is_cap && row.bom_voltage && row.part_voltage">
+                      {{ row.bom_voltage }} → {{ row.part_voltage }}
+                    </template>
+                    <template v-else-if="row.is_cap && row.bom_voltage">
+                      {{ row.bom_voltage }} → 未标
+                    </template>
+                    <template v-else-if="row.is_cap && row.part_voltage">
+                      库存 {{ row.part_voltage }}
                     </template>
                   </td>
                   <td class="loc">

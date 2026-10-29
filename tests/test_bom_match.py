@@ -119,7 +119,9 @@ def test_capacitor_without_bom_voltage_stays_unmatched_when_ratings_differ():
     assert match_part(_line("22uF", "C0603"), [low, high]) is None
 
 
-def test_capacitor_with_unknown_stock_voltage_is_last_resort():
+def test_capacitor_with_unknown_stock_voltage_does_not_satisfy_requirement():
     unknown = _part("22uF 0603 暂无电压", "22uF 0603 暂无电压")
+    low = _part("22uF 6.3V 0603", "22uF 6.3V 0603", slot=2)
 
-    assert match_part(_line("22uF 25V", "C0603"), [unknown]) is unknown
+    assert match_part(_line("22uF 25V", "C0603"), [unknown]) is None
+    assert match_part(_line("22uF 25V", "C0603"), [low]) is None
