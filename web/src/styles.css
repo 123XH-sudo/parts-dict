@@ -421,6 +421,105 @@ table {
   margin-top: 4px;
 }
 
+.table-wrap {
+  overflow-x: auto;
+}
+
+.job-table {
+  table-layout: fixed;
+  min-width: 560px;
+}
+
+.job-table td,
+.job-table th {
+  overflow-wrap: anywhere;
+}
+
+.job-table .designators {
+  color: var(--ink);
+}
+
+.job-table .designators details {
+  margin: 0;
+}
+
+.job-table .designators summary {
+  color: var(--ink);
+}
+
+.designator-full {
+  display: inline-block;
+  margin-top: 4px;
+}
+
+.polar-table th:nth-child(1) {
+  width: 18%;
+}
+
+.polar-table th:nth-child(2) {
+  width: 13%;
+}
+
+.polar-table th:nth-child(3) {
+  width: 27%;
+}
+
+.polar-table th:nth-child(4) {
+  width: 13%;
+}
+
+.polar-table th:nth-child(5) {
+  width: 29%;
+}
+
+.box-table th:nth-child(1) {
+  width: 30%;
+}
+
+.box-table th:nth-child(2) {
+  width: 13%;
+}
+
+.box-table th:nth-child(3) {
+  width: 30%;
+}
+
+.box-table th:nth-child(4) {
+  width: 15%;
+}
+
+.box-table th:nth-child(5) {
+  width: 12%;
+}
+
+.unreg-table th:nth-child(1) {
+  width: 30%;
+}
+
+.unreg-table th:nth-child(2) {
+  width: 20%;
+}
+
+.unreg-table th:nth-child(3) {
+  width: 42%;
+}
+
+.unreg-table th:nth-child(4) {
+  width: 8%;
+}
+
+.skip-table th:nth-child(1) {
+  width: 36%;
+}
+
+.skip-table th:nth-child(2) {
+  width: 22%;
+}
+
+.skip-table th:nth-child(3) {
+  width: 42%;
+}
+
 th {
   font-size: 12px;
   font-weight: 600;
